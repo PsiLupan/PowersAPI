@@ -215,6 +215,38 @@ impl PowerRedirectOutput {
     }
 }
 
+// Serializable representation of chain effects.
+#[derive(Serialize)]
+pub struct ChainEffectOutput {
+    /// I might deprecate the value in effect area in v3.
+    #[serde(skip)]
+    pub chain_delay_time: f32,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub chain_effectiveness: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub chain_target_expression: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub chain_fork: Vec<i32>,
+}
+
+impl ChainEffectOutput {
+    fn from_base_power(power: &BasePower) -> Self {
+        let mut output = ChainEffectOutput {
+            chain_delay_time: normalize(power.f_chain_delay),
+            chain_effectiveness: Vec::new(),
+            chain_target_expression: Vec::new(),
+            chain_fork: power.pi_chain_fork.clone(),
+        };
+        if let Some(rule) = requires_to_string(&power.ppch_chain_eff) {
+            output.chain_effectiveness.push(rule);
+        }
+        if let Some(rule) = requires_to_string(&power.ppch_chain_target_expr) {
+            output.chain_target_expression.push(rule);
+        }
+        output
+    }
+}
+
 /// Serializable representation of a power.
 #[derive(Serialize)]
 pub struct PowerOutput {
@@ -254,6 +286,8 @@ pub struct PowerOutput {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub display_target_auto_hit: Vec<&'static str>,
     pub requires_line_of_sight: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chain: Option<ChainEffectOutput>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub modes_required: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -263,7 +297,13 @@ pub struct PowerOutput {
     pub activate: ActivationOutput,
     #[serde(skip_serializing_if = "UsageOutput::is_empty")]
     pub usage: UsageOutput,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub strengths_disallowed: Vec<Cow<'static, str>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub global_strengths_disallowed: Vec<Cow<'static, str>>,
     pub effect_groups: Vec<EffectGroupOutput>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub activate_effect_groups: Vec<EffectGroupOutput>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub redirects: Vec<PowerRedirectOutput>,
 }
@@ -307,12 +347,16 @@ impl PowerOutput {
                 TargetVisibility::kTargetVisibility_LineOfSight => true,
                 TargetVisibility::kTargetVisibility_None => false,
             },
+            chain: None,
             modes_required: Vec::new(),
             modes_disallowed: Vec::new(),
             status_interaction: StatusOptionsOutput::from_base_power(power),
             activate: ActivationOutput::from_base_power(power),
             usage: UsageOutput::from_base_power(power),
+            strengths_disallowed: Vec::new(),
+            global_strengths_disallowed: Vec::new(),
             effect_groups: Vec::new(),
+            activate_effect_groups: Vec::new(),
             redirects: Vec::new(),
         };
         // power icon
@@ -325,24 +369,34 @@ impl PowerOutput {
         }
         // attack types
         for atk in &power.pe_attack_types {
-            pwr.attack_types
-                .push(character_attrib_to_string(atk, attrib_names));
+            pwr.attack_types.push(atk.get_string(attrib_names));
         }
         // enhancements
         for enh in &power.pe_boosts_allowed {
-            if let Some(enh_allowed) = boost_attrib_to_string(enh, attrib_names) {
+            if let Some(enh_allowed) = enh.get_string(attrib_names) {
                 pwr.enhancements_allowed.push(enh_allowed);
             }
         }
         // disallowed/required modes
         for mode in &power.pe_modes_required {
-            if let Some(m) = mode_attrib_to_string(mode, attrib_names) {
+            if let Some(m) = mode.get_string(attrib_names) {
                 pwr.modes_required.push(m);
             }
         }
         for mode in &power.pe_modes_disallowed {
-            if let Some(m) = mode_attrib_to_string(mode, attrib_names) {
+            if let Some(m) = mode.get_string(attrib_names) {
                 pwr.modes_disallowed.push(m);
+            }
+        }
+        // disallowed strengths
+        for attrib in &power.p_strengths_disallowed {
+            if let Some(attrib_name) = attrib.get_string(attrib_names) {
+                pwr.strengths_disallowed.push(attrib_name);
+            }
+        }
+        for attrib in &power.p_global_strengths_disallowed {
+            if let Some(attrib_name) = attrib.get_string(attrib_names) {
+                pwr.global_strengths_disallowed.push(attrib_name);
             }
         }
         // auto hit tags
@@ -354,12 +408,16 @@ impl PowerOutput {
                 }
             }
         }
+        // chain parameters
+        if matches!(power.e_effect_area, EffectArea::kEffectArea_Chain) {
+            pwr.chain = Some(ChainEffectOutput::from_base_power(power));
+        }
         // filter archetypes to only those that can purchase this power, if necessary
         let archetypes = filter_archetypes_pwr(power, &power.archetypes);
         // effect groups
         for effect_group in &power.pp_effects {
             pwr.effect_groups.push(EffectGroupOutput::from_effect_group(
-                effect_group,
+                &*effect_group.borrow(),
                 attrib_names,
                 power,
                 &archetypes,
@@ -379,7 +437,7 @@ impl PowerOutput {
 
 /// Filters the archetypes vector based on any purchase requirements specified in `power`.
 /// If `power` has no requirements, all archetypes passed in will be returned.
-fn filter_archetypes_pwr(power: &BasePower, archetypes: &Vec<Rc<Archetype>>) -> Vec<Rc<Archetype>> {
+fn filter_archetypes_pwr(power: &BasePower, archetypes: &Vec<ObjRef<Archetype>>) -> Vec<ObjRef<Archetype>> {
     if power
         .ppch_buy_requires
         .iter()
@@ -389,7 +447,7 @@ fn filter_archetypes_pwr(power: &BasePower, archetypes: &Vec<Rc<Archetype>>) -> 
         archetypes
             .iter()
             .filter(|at| {
-                if let Some(class_key) = &at.class_key {
+                if let Some(class_key) = &at.borrow().class_key {
                     power
                         .ppch_buy_requires
                         .iter()

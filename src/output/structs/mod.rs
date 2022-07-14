@@ -9,13 +9,9 @@ use powers::PowerOutput;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 /// Used when joining parts of an URL together.
 const URL_SEP: char = '/';
-
-/// Used in attribute name tables.
-const ORIGINS_SIZE: usize = 5;
 
 /// Common fields added to other structs.
 #[derive(Serialize)]
@@ -130,7 +126,7 @@ impl ArchetypesOutput {
         };
         for at in ats.values() {
             ats_out.archetypes.push(ArchetypeOutput::from_archetype(
-                at,
+                &*at.borrow(),
                 &PrimarySecondary::None,
                 true,
                 config,
@@ -164,14 +160,14 @@ impl RootOutput {
     ///
     /// Arguments:
     ///
-    /// * `power_categories` - A `Vec<Rc<PowerCategory>>`.
+    /// * `power_categories` - A `Vec<ObjRef<PowerCategory>>`.
     /// * `config` - Configuration information.
     ///
     /// Returns:
     ///
     /// A `RootOutput`.
     pub fn from_power_categories(
-        power_categories: &Vec<Rc<PowerCategory>>,
+        power_categories: &Vec<ObjRef<PowerCategory>>,
         config: &PowersConfig,
     ) -> Self {
         let mut at_url = String::new();
@@ -188,7 +184,7 @@ impl RootOutput {
             archetypes: at_url,
             power_categories: Vec::new(),
         };
-        for pcat in power_categories {
+        for pcat in power_categories.iter().map(|p| p.borrow()) {
             if !pcat.top_level || !pcat.include_in_output {
                 continue;
             }
@@ -211,7 +207,7 @@ impl RootOutput {
                 if pcat.archetypes.len() == 1 {
                     // if there's only 1 archetype attached, then this is a group of sets intended for that archetype
                     rpc.archetype = Some(ArchetypeOutput::from_archetype(
-                        &pcat.archetypes[0],
+                        &*pcat.archetypes[0].borrow(),
                         &pcat.pri_sec,
                         false,
                         config,
@@ -264,15 +260,14 @@ impl PowerCategoryOutput {
         if power_category.archetypes.len() == 1 {
             // if there's only 1 archetype attached, then this is a group of sets intended for that archetype
             pcat.archetype = Some(ArchetypeOutput::from_archetype(
-                &power_category.archetypes[0],
+                &*power_category.archetypes[0].borrow(),
                 &power_category.pri_sec,
                 false,
                 config,
             ));
         }
-        for pset in &power_category.pp_power_sets {
-            if !pset.include_in_output
-            {
+        for pset in power_category.pp_power_sets.iter().map(|p| p.borrow()) {
+            if !pset.include_in_output {
                 continue;
             }
             let mut url = String::new();
@@ -377,14 +372,11 @@ impl PowerSetOutput {
                 power_set.pch_set_buy_requires_failed_text.clone();
         }
         // map individual powers
-        for power in &power_set.pp_powers {
+        for power in power_set.pp_powers.iter().map(|p| p.borrow()) {
             // skip disabled powers
             if power.include_in_output {
-                pset.powers.push(PowerOutput::from_base_power(
-                    power,
-                    attrib_names,
-                    config,
-                ));
+                pset.powers
+                    .push(PowerOutput::from_base_power(&*power, attrib_names, config));
             }
         }
         // copy minimum levels
@@ -626,8 +618,8 @@ where
                 expression.push(')');
                 return Some(expression);
             }
-            "source.MapTeamArea>" => {
-                // weird exception to below
+            "source.MapTeamArea>" | "source.VillainName>" => {
+                // weird exceptions to below
                 return Some(token[0..token.len() - 1].to_owned());
             }
             _ => {
@@ -659,158 +651,5 @@ where
             }
         }
     }
-    None
-}
-
-/// Converts a boost attribute to a human readable string.
-fn boost_attrib_to_string(attrib: &SpecialAttrib, attrib_names: &AttribNames) -> Option<String> {
-    if let SpecialAttrib::kSpecialAttrib_Character(a) = attrib {
-        match *a as usize {
-            i @ ORIGINS_SIZE..=99 => {
-                // Why do we subtract ORIGINS_SIZE? Good question! Check this lovely note I found in the code:
-                //
-                // > mw 3.10.06 added guard here because it's everywhere else this calc is done,
-                // > and there's reported crash here that I can't repro, so I'm doing this and hoping for the best
-                // > (subtracting off the number of origins seems insane and neither Jered nor CW can remember why its needed)
-                //
-                // Coding is weird, folks :)
-                //
-                // Follow up: It's possible the weird 4..3..2..1..0 sequence seen in several powers (such as incarnates) is a
-                // reference to those origins that's been trimmed out here.
-                if let Some(name) = attrib_names.pp_boost.get(i - ORIGINS_SIZE) {
-                    return name.pch_display_name.clone();
-                }
-            }
-            _ => (),
-        }
-    }
-    None
-}
-
-/// Converts a mode attribute to a human readable string.
-fn mode_attrib_to_string(attrib: &SpecialAttrib, attrib_names: &AttribNames) -> Option<String> {
-    if let SpecialAttrib::kSpecialAttrib_Character(a) = attrib {
-        if let Some(name) = attrib_names.pp_mode.get(*a as usize) {
-            return name.pch_name.clone();
-        }
-    }
-    None
-}
-
-/// Converts a character attribute to a human readable string.
-fn character_attrib_to_string(
-    attrib: &SpecialAttrib,
-    attrib_names: &AttribNames,
-) -> Option<Cow<'static, str>> {
-    macro_rules! retopt {
-        ($string:literal) => {
-            return Some(Cow::Borrowed($string));
-        };
-    }
-    match attrib {
-        SpecialAttrib::kSpecialAttrib_UNSET => return None,
-        SpecialAttrib::kSpecialAttrib_Character(a) => {
-            match *a as usize {
-                // The below entries are divided by 4 to get the name because they originally refer to
-                // memory offsets into the C structs.
-                // ppDamage starts at offset OFFSET_DMG_0
-                i @ CharacterAttributes::OFFSET_DMG_0..=CharacterAttributes::OFFSET_DMG_19 => {
-                    if let Some(name) = attrib_names.pp_damage.get(i / 4) {
-                        return Some(Cow::Owned(format!(
-                            "{}_Dmg",
-                            name.pch_display_name.as_ref().unwrap()
-                        )));
-                    }
-                }
-                // There are a few different versions of these strings stored for use in the UI
-                // but I prefer to use my own.
-                CharacterAttributes::OFFSET_HIT_POINTS => retopt!("HitPoints"),
-                CharacterAttributes::OFFSET_ABSORB => retopt!("Absorb"),
-                CharacterAttributes::OFFSET_ENDURANCE => retopt!("Endurance"),
-                CharacterAttributes::OFFSET_INSIGHT => retopt!("Insight"),
-                CharacterAttributes::OFFSET_RAGE => retopt!("Rage"),
-                CharacterAttributes::OFFSET_TOHIT => retopt!("ToHit"),
-                // ppDefense starts at offset OFFSET_DEF_0
-                i @ CharacterAttributes::OFFSET_DEF_0..=CharacterAttributes::OFFSET_DEF_19 => {
-                    if let Some(name) = attrib_names
-                        .pp_defense
-                        .get((i - CharacterAttributes::OFFSET_DEF_0) / 4)
-                    {
-                        return Some(Cow::Owned(format!(
-                            "{}_Def",
-                            name.pch_display_name.as_ref().unwrap()
-                        )));
-                    }
-                }
-                CharacterAttributes::OFFSET_DEFENSE => retopt!("Defense"),
-                CharacterAttributes::OFFSET_RUNNING_SPEED => retopt!("RunningSpeed"),
-                CharacterAttributes::OFFSET_FLYING_SPEED => retopt!("FlyingSpeed"),
-                CharacterAttributes::OFFSET_SWIMMING_SPEED => retopt!("SwimmingSpeed"),
-                CharacterAttributes::OFFSET_JUMPING_SPEED => retopt!("JumpingSpeed"),
-                CharacterAttributes::OFFSET_JUMP_HEIGHT => retopt!("JumpHeight"),
-                CharacterAttributes::OFFSET_MOVEMENT_CONTROL => retopt!("MovementControl"),
-                CharacterAttributes::OFFSET_MOVEMENT_FRICTION => retopt!("MovementFriction"),
-                CharacterAttributes::OFFSET_STEALTH => retopt!("Stealth"),
-                CharacterAttributes::OFFSET_STEALTH_RADIUS_PVE => retopt!("StealthRadius_PVE"),
-                CharacterAttributes::OFFSET_STEALTH_RADIUS_PVP => retopt!("StealthRadius_PVP"),
-                CharacterAttributes::OFFSET_PERCEPTION_RADIUS => retopt!("PerceptionRadius"),
-                CharacterAttributes::OFFSET_REGENERATION => retopt!("Regeneration"),
-                CharacterAttributes::OFFSET_RECOVERY => retopt!("Recovery"),
-                CharacterAttributes::OFFSET_INSIGHT_RECOVERY => retopt!("InsightRecovery"),
-                CharacterAttributes::OFFSET_THREAT_LEVEL => retopt!("ThreatLevel"),
-                CharacterAttributes::OFFSET_TAUNT => retopt!("Taunt"),
-                CharacterAttributes::OFFSET_PLACATE => retopt!("Placate"),
-                CharacterAttributes::OFFSET_CONFUSED => retopt!("Confused"),
-                CharacterAttributes::OFFSET_AFRAID => retopt!("Afraid"),
-                CharacterAttributes::OFFSET_TERRORIZED => retopt!("Terrorized"),
-                CharacterAttributes::OFFSET_HELD => retopt!("Held"),
-                CharacterAttributes::OFFSET_IMMOBILIZED => retopt!("Immobilized"),
-                CharacterAttributes::OFFSET_STUNNED => retopt!("Stunned"),
-                CharacterAttributes::OFFSET_SLEEP => retopt!("Sleep"),
-                CharacterAttributes::OFFSET_FLY => retopt!("Fly"),
-                CharacterAttributes::OFFSET_JUMP_PACK => retopt!("Jump Pack"),
-                CharacterAttributes::OFFSET_TELEPORT => retopt!("Teleport"),
-                CharacterAttributes::OFFSET_UNTOUCHABLE => retopt!("Untouchable"),
-                CharacterAttributes::OFFSET_INTANGIBLE => retopt!("Intangible"),
-                CharacterAttributes::OFFSET_ONLY_AFFECTS_SELF => retopt!("OnlyAffectsSelf"),
-                CharacterAttributes::OFFSET_EXPERIENCE_GAIN => retopt!("ExperienceGain"),
-                CharacterAttributes::OFFSET_INFLUENCE_GAIN => retopt!("InfluenceGain"),
-                CharacterAttributes::OFFSET_PRESTIGE_GAIN => retopt!("PrestigeGain"),
-                CharacterAttributes::OFFSET_EVADE => retopt!("Evade"),
-                CharacterAttributes::OFFSET_KNOCKUP => retopt!("Knockup"),
-                CharacterAttributes::OFFSET_KNOCKBACK => retopt!("Knockback"),
-                CharacterAttributes::OFFSET_REPEL => retopt!("Repel"),
-                CharacterAttributes::OFFSET_ACCURACY => retopt!("Accuracy"),
-                CharacterAttributes::OFFSET_RADIUS => retopt!("Radius"),
-                CharacterAttributes::OFFSET_ARC => retopt!("Arc"),
-                CharacterAttributes::OFFSET_RANGE => retopt!("Range"),
-                CharacterAttributes::OFFSET_TIME_TO_ACTIVATE => retopt!("TimeToActivate"),
-                CharacterAttributes::OFFSET_RECHARGE_TIME => retopt!("RechargeTime"),
-                CharacterAttributes::OFFSET_INTERRUPT_TIME => retopt!("InterruptTime"),
-                CharacterAttributes::OFFSET_ENDURANCE_DISCOUNT => retopt!("EnduranceDiscount"),
-                CharacterAttributes::OFFSET_INSIGHT_DISCOUNT => retopt!("InsightDiscount"),
-                CharacterAttributes::OFFSET_METER => retopt!("Meter"),
-                // ppElusivity starts at offset OFFSET_ELUSIVITY_0
-                i
-                @
-                CharacterAttributes::OFFSET_ELUSIVITY_0
-                    ..=CharacterAttributes::OFFSET_ELUSIVITY_19 => {
-                    if let Some(name) = attrib_names
-                        .pp_elusivity
-                        .get((i - CharacterAttributes::OFFSET_ELUSIVITY_0) / 4)
-                    {
-                        return Some(Cow::Owned(format!(
-                            "{}_Elusivity",
-                            name.pch_display_name.as_ref().unwrap()
-                        )));
-                    }
-                }
-                CharacterAttributes::OFFSET_ELUSIVITY_BASE => retopt!("ElusivityBase"),
-                _ => (),
-            }
-        }
-        _ => return Some(Cow::Borrowed(attrib.get_string())),
-    }
-    debug_assert!(false, "Unampped attrib: {:?}", attrib);
     None
 }

@@ -1,6 +1,5 @@
 use super::*;
 use crate::structs::{BasePowerSet, Keyed};
-use std::rc::Rc;
 
 /// Reads all of the power sets in the current .bin file.
 ///
@@ -30,8 +29,8 @@ where
     let mut powersets = Keyed::<_>::new();
     for _ in 0..pbps_size {
         let powerset = read_base_powerset(reader, strings, messages)?;
-        if let Some(powerset_name) = &powerset.pch_full_name {
-            powersets.insert(powerset_name.clone(), Rc::new(powerset));
+        if let Some(powerset_name) = powerset.pch_full_name.clone() {
+            powersets.insert(powerset_name, powerset);
         }
     }
 

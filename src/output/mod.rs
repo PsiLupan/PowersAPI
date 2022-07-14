@@ -2,14 +2,13 @@ mod structs;
 
 use crate::structs::config::{OutputStyleConfig, PowersConfig};
 use crate::structs::{
-    Archetype, AttribNames, BasePowerSet, Keyed, PowerCategory, PowersDictionary,
+    Archetype, AttribNames, BasePowerSet, Keyed, ObjRef, PowerCategory, PowersDictionary,
 };
 use std::fs;
 use std::io;
 use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
 use std::path::Path;
-use std::rc::Rc;
 use structs::*;
 
 /// Default name for the .json files.
@@ -64,19 +63,19 @@ pub fn write_powers_dictionary(
     write_archetypes(&powers_dict.archetypes, config)?;
 
     // write all of the categories
-    for category in &powers_dict.power_categories {
+    for category in powers_dict.power_categories.iter().map(|c| c.borrow()) {
         if !category.include_in_output {
             continue;
         }
-        write_power_category(category, config)?;
+        write_power_category(&*category, config)?;
 
         if let Some(pcat_name) = category.pch_name.as_ref() {
             // write the category's power sets
-            for set in &category.pp_power_sets {
+            for set in category.pp_power_sets.iter().map(|p| p.borrow()) {
                 if set.include_in_output {
                     write_power_set(
                         Some(pcat_name.get_string()),
-                        set,
+                        &*set,
                         &powers_dict.attrib_names,
                         config,
                     )?;
@@ -89,7 +88,10 @@ pub fn write_powers_dictionary(
 }
 
 /// Writes the root .json file.
-fn write_root(power_categories: &Vec<Rc<PowerCategory>>, config: &PowersConfig) -> io::Result<()> {
+fn write_root(
+    power_categories: &Vec<ObjRef<PowerCategory>>,
+    config: &PowersConfig,
+) -> io::Result<()> {
     let output_file = config.join_to_output_path(JSON_FILE);
     println!("Writing: {} ...", output_file.display());
     let mut f = fs::File::create(output_file)?;
@@ -149,11 +151,7 @@ fn write_power_set(
     println!("\tWriting: {} ...", output_file.display());
     let mut f = fs::File::create(output_file)?;
 
-    let pset = PowerSetOutput::from_base_power_set(
-        power_set,
-        attrib_names,
-        config,
-    );
+    let pset = PowerSetOutput::from_base_power_set(power_set, attrib_names, config);
     match config.output_style {
         OutputStyleConfig::Pretty => serde_json::to_writer_pretty(&mut f, &pset)?,
         OutputStyleConfig::Compact => serde_json::to_writer(&mut f, &pset)?,

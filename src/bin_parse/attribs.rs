@@ -1,5 +1,5 @@
 use super::*;
-use crate::structs::{AttribName, AttribNames, CharacterAttributes};
+use crate::structs::{AttribName, AttribNames, CharacterAttributes, PTR_SIZE};
 
 /// Reads all of the attribute names in the current .bin file.
 /// Refer to Common/entity/attrib_names.h TokenizerParseInfo structs.
@@ -27,7 +27,13 @@ where
 
     macro_rules! names_arr {
         ($($field:ident),+) => {
-            $( bin_read_arr_fn(&mut attrib_names.$field, |re| read_attrib_name(re, strings, messages), reader)?; )+
+            $(
+                bin_read_arr_fn(&mut attrib_names.$field, |re| read_attrib_name(re, strings, messages), reader)?;
+                for (idx, name) in attrib_names.$field.iter_mut().enumerate()
+                {
+                    name.offset = idx * PTR_SIZE;
+                }
+            )+
         };
     }
     // data length

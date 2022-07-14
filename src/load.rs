@@ -2,7 +2,6 @@ use crate::bin_parse;
 use crate::structs::config::PowersConfig;
 use crate::structs::*;
 use std::borrow::Cow;
-use std::cell::UnsafeCell;
 use std::process;
 use std::rc::Rc;
 use std::time::Instant;
@@ -34,12 +33,12 @@ macro_rules! ecxt {
 
 /// Used to find power categories by name referenced from archetypes.
 fn find_power_category<'a>(
-    power_categories: &'a mut Keyed<PowerCategory>,
+    power_categories: &'a Keyed<PowerCategory>,
     name: Option<&NameKey>,
-) -> Option<&'a mut PowerCategory> {
+) -> Option<std::cell::RefMut<'a, PowerCategory>> {
     if let Some(name) = name {
-        if let Some(pcat_rc) = power_categories.get_mut(name) {
-            return Rc::get_mut(pcat_rc);
+        if let Some(pcat) = power_categories.get(name) {
+            return Some(pcat.borrow_mut());
         }
     }
     None
@@ -52,37 +51,42 @@ fn match_archetypes_to_power_categories(
     config: &PowersConfig,
     power_categories: &mut Keyed<PowerCategory>,
 ) {
-    for a in archetypes.values() {
-        if let Some(pcat) = find_power_category(power_categories, a.pch_primary_category.as_ref()) {
+    for at in archetypes.values() {
+        let a = at.borrow();
+        if let Some(mut pcat) =
+            find_power_category(power_categories, a.pch_primary_category.as_ref())
+        {
             println!(
                 "Matched {} to primary {}",
                 a.pch_name.as_ref().unwrap(),
                 pcat.pch_name.as_ref().unwrap()
             );
-            pcat.archetypes.push(Rc::clone(a));
+            pcat.archetypes.push(Rc::clone(at));
             // theoretically there should only be 1 match per primary/secondary ...
             pcat.pri_sec = PrimarySecondary::Primary;
         }
-        if let Some(pcat) = find_power_category(power_categories, a.pch_secondary_category.as_ref())
+        if let Some(mut pcat) =
+            find_power_category(power_categories, a.pch_secondary_category.as_ref())
         {
             println!(
                 "Matched {} to secondary {}",
                 a.pch_name.as_ref().unwrap(),
                 pcat.pch_name.as_ref().unwrap()
             );
-            pcat.archetypes.push(Rc::clone(a));
+            pcat.archetypes.push(Rc::clone(at));
             pcat.pri_sec = PrimarySecondary::Secondary;
         }
-        if let Some(pcat) = find_power_category(power_categories, a.pch_epic_pool_category.as_ref())
+        if let Some(mut pcat) =
+            find_power_category(power_categories, a.pch_epic_pool_category.as_ref())
         {
             println!(
                 "Matched {} to epic {}",
                 a.pch_name.as_ref().unwrap(),
                 pcat.pch_name.as_ref().unwrap()
             );
-            pcat.archetypes.push(Rc::clone(a));
+            pcat.archetypes.push(Rc::clone(at));
         }
-        if let Some(pcat) =
+        if let Some(mut pcat) =
             find_power_category(power_categories, a.pch_power_pool_category.as_ref())
         {
             println!(
@@ -90,16 +94,16 @@ fn match_archetypes_to_power_categories(
                 a.pch_name.as_ref().unwrap(),
                 pcat.pch_name.as_ref().unwrap()
             );
-            pcat.archetypes.push(Rc::clone(a));
+            pcat.archetypes.push(Rc::clone(at));
         }
         for pcat in &config.global_categories {
-            if let Some(pcat) = find_power_category(power_categories, Some(pcat)) {
+            if let Some(mut pcat) = find_power_category(power_categories, Some(pcat)) {
                 println!(
                     "Matched {} to {}",
                     a.pch_name.as_ref().unwrap(),
                     pcat.pch_name.as_ref().unwrap()
                 );
-                pcat.archetypes.push(Rc::clone(a));
+                pcat.archetypes.push(Rc::clone(at));
             }
         }
     }
@@ -110,11 +114,12 @@ fn match_archetypes_to_power_categories(
 fn copy_powers_to_entcreate(
     entcreate: &mut AttribModParam_EntCreate,
     villain_archetypes: &Keyed<Archetype>,
-    power_cats: &mut Keyed<PowerCategory>,
-    power_sets: &mut Keyed<BasePowerSet>,
-    powers: &mut Keyed<BasePower>,
+    power_cats: &Keyed<PowerCategory>,
+    power_sets: &Keyed<BasePowerSet>,
+    powers: &Keyed<BasePower>,
 ) {
     if let Some(villain_def) = &entcreate.villain_def {
+        let villain_def = villain_def.borrow();
         // look up the powers specified in the entity def
         for power_ref in &villain_def.powers {
             if matches!(&power_ref.power, Some(s) if s.is_wildcard()) {
@@ -125,7 +130,7 @@ fn copy_powers_to_entcreate(
                     power_ref.power_set.as_ref().unwrap()
                 );
                 if let Some(power_set) = power_sets.get(&power_set_name.into()) {
-                    for power_name in &power_set.pp_power_names {
+                    for power_name in &power_set.borrow().pp_power_names {
                         entcreate.power_refs.push(power_name.clone());
                     }
                 }
@@ -138,7 +143,7 @@ fn copy_powers_to_entcreate(
                     power_ref.power.as_ref().unwrap()
                 ));
                 if let Some(power) = powers.get(&power_name) {
-                    if let Some(power_name_full) = &power.pch_full_name {
+                    if let Some(power_name_full) = &power.borrow().pch_full_name {
                         entcreate.power_refs.push(power_name_full.clone());
                     }
                 }
@@ -162,14 +167,18 @@ fn copy_powers_to_entcreate(
 /// Marks references to the `powers` used by `power_param` to be included in the output.
 fn mark_powers_in_power_param(
     power_param: &AttribModParam_Power,
-    archetypes: &Vec<Rc<Archetype>>,
-    power_cats: &mut Keyed<PowerCategory>,
-    power_sets: &mut Keyed<BasePowerSet>,
-    powers: &mut Keyed<BasePower>,
+    current_power_name: &NameKey,
+    archetypes: &Vec<ObjRef<Archetype>>,
+    power_cats: &Keyed<PowerCategory>,
+    power_sets: &Keyed<BasePowerSet>,
+    powers: &Keyed<BasePower>,
 ) {
     // the power categories and sets are never used, everything is flattened into the power name
     for power_name in &power_param.ppch_power_names {
-        mark_power_for_inclusion(power_name, archetypes, power_cats, power_sets, powers);
+        // Some powers reference themselves -- no need to mark (this would also cause a borrow check error)
+        if power_name != current_power_name {
+            mark_power_for_inclusion(power_name, archetypes, power_cats, power_sets, powers);
+        }
     }
 }
 
@@ -177,59 +186,54 @@ fn mark_powers_in_power_param(
 fn resolve_entity_defs_and_power_grants(
     villains: &Keyed<VillainDef>,
     villain_archetypes: &Keyed<Archetype>,
-    power_cats: &mut Keyed<PowerCategory>,
-    power_sets: &mut Keyed<BasePowerSet>,
-    powers: &mut Keyed<BasePower>,
+    power_cats: &Keyed<PowerCategory>,
+    power_sets: &Keyed<BasePowerSet>,
+    powers: &Keyed<BasePower>,
 ) -> usize {
     let mut count_resolved = 0;
-    unsafe {
-        // This is probably the only non-obvious Rust-y thing you'll see in this code base.
-        // I'm mutating a hashmap of powers that I'm also reading from at the
-        // same time, which Rust would normally prevent. I use a smidge of unsafe here
-        // just to assure the compiler that, yes, I know what I'm doing. I'm not modifying
-        // the hashmap in any way that would invalidate my references to the two items.
-        let p_powers = UnsafeCell::new(powers);
-        for power in (*p_powers.get()).values_mut() {
-            if power.include_in_output {
-                let power = Rc::get_mut_unchecked(power);
-                // check effect groups for attrib mod params we're interested in
-                for egroup in &mut power.pp_effects {
-                    let egroup = Rc::get_mut_unchecked(egroup);
-                    for attrib_mod in &mut egroup.pp_templates {
-                        for param in &mut attrib_mod.p_params {
-                            match param {
-                                AttribModParam::EntCreate(e) if !e.resolved => {
-                                    if let Some(entity_def_name) = &e.pch_entity_def {
-                                        if let Some(entity_def) = villains.get(entity_def_name) {
-                                            // copy entity def data into the mod param
-                                            e.villain_def = Some(Rc::clone(entity_def));
-                                            // copy villain's powers into the mod param
-                                            copy_powers_to_entcreate(
-                                                e,
-                                                &villain_archetypes,
-                                                power_cats,
-                                                power_sets,
-                                                *p_powers.get(),
-                                            );
-                                        }
+    for power in powers.values().map(|p| p.borrow()) {
+        if power.include_in_output {
+            // check effect groups for attrib mod params we're interested in
+            for mut egroup in power
+                .pp_effects
+                .iter()
+                .map(|e| e.borrow_mut())
+            {
+                for attrib_mod in &mut egroup.pp_templates {
+                    for param in &mut attrib_mod.p_params {
+                        match param {
+                            AttribModParam::EntCreate(e) if !e.resolved => {
+                                if let Some(entity_def_name) = &e.pch_entity_def {
+                                    if let Some(entity_def) = villains.get(entity_def_name) {
+                                        // copy entity def data into the mod param
+                                        e.villain_def = Some(Rc::clone(entity_def));
+                                        // copy villain's powers into the mod param
+                                        copy_powers_to_entcreate(
+                                            e,
+                                            &villain_archetypes,
+                                            power_cats,
+                                            power_sets,
+                                            powers,
+                                        );
                                     }
-                                    e.resolved = true;
-                                    count_resolved += 1;
                                 }
-                                AttribModParam::Power(p) if !p.resolved => {
-                                    // copy powers referred to by this param into it
-                                    mark_powers_in_power_param(
-                                        p,
-                                        &power.archetypes,
-                                        power_cats,
-                                        power_sets,
-                                        *p_powers.get(),
-                                    );
-                                    p.resolved = true;
-                                    count_resolved += 1;
-                                }
-                                _ => (),
+                                e.resolved = true;
+                                count_resolved += 1;
                             }
+                            AttribModParam::Power(p) if !p.resolved => {
+                                // copy powers referred to by this param into it
+                                mark_powers_in_power_param(
+                                    p,
+                                    power.pch_full_name.as_ref().unwrap(),
+                                    &power.archetypes,
+                                    power_cats,
+                                    power_sets,
+                                    powers,
+                                );
+                                p.resolved = true;
+                                count_resolved += 1;
+                            }
+                            _ => (),
                         }
                     }
                 }
@@ -243,10 +247,10 @@ fn resolve_entity_defs_and_power_grants(
 /// in the output set.
 fn mark_power_for_inclusion(
     power_ref: &NameKey,
-    archetypes: &Vec<Rc<Archetype>>,
-    power_cats: &mut Keyed<PowerCategory>,
-    power_sets: &mut Keyed<BasePowerSet>,
-    powers: &mut Keyed<BasePower>,
+    archetypes: &Vec<ObjRef<Archetype>>,
+    power_cats: &Keyed<PowerCategory>,
+    power_sets: &Keyed<BasePowerSet>,
+    powers: &Keyed<BasePower>,
 ) {
     // extract the category/set/power names
     let name_parts = power_ref.split();
@@ -256,28 +260,26 @@ fn mark_power_for_inclusion(
         power_ref,
     );
     // include power category
-    if let Some(pcat) = power_cats.get_mut(&NameKey::new(name_parts[0].to_string())) {
-        let pcat = unsafe { Rc::get_mut_unchecked(pcat) };
-        pcat.include_in_output = true;
+    if let Some(pcat) = power_cats.get(&NameKey::new(name_parts[0].to_string())) {
+        pcat.borrow_mut().include_in_output = true;
     }
     // include power set
     let first_two_parts = format!("{}.{}", name_parts[0], name_parts[1]);
-    if let Some(pset) = power_sets.get_mut(&NameKey::new(first_two_parts)) {
-        let pset = unsafe { Rc::get_mut_unchecked(pset) };
-        pset.include_in_output = true;
+    if let Some(pset) = power_sets.get(&NameKey::new(first_two_parts)) {
+        pset.borrow_mut().include_in_output = true;
     }
     // include power
-    if let Some(power2) = powers.get_mut(power_ref) {
-        let power2 = unsafe { Rc::get_mut_unchecked(power2) };
-        power2.include_in_output = true;
+    if let Some(power) = powers.get(power_ref) {
+        let mut power = power.borrow_mut();
+        power.include_in_output = true;
         // copy archetypes from the power that referenced this one
         for at in archetypes {
-            if !power2
+            if !power
                 .archetypes
                 .iter()
                 .any(|at2| std::ptr::eq(at.as_ref(), at2.as_ref()))
             {
-                power2.archetypes.push(Rc::clone(at));
+                power.archetypes.push(Rc::clone(at));
             }
         }
     }
@@ -288,50 +290,93 @@ fn mark_power_for_inclusion(
 /// categories, redirects wouldn't normally survive since they tend to be in the villain
 /// categories.
 fn resolve_power_redirects(
-    powers: &mut Keyed<BasePower>,
-    power_cats: &mut Keyed<PowerCategory>,
-    power_sets: &mut Keyed<BasePowerSet>,
+    powers: &Keyed<BasePower>,
+    power_cats: &Keyed<PowerCategory>,
+    power_sets: &Keyed<BasePowerSet>,
 ) -> usize {
     let mut count_resolved = 0;
-    // See above for note on unsafe.
-    unsafe {
-        let p_powers = UnsafeCell::new(powers);
-        for power in (*p_powers.get()).values_mut() {
-            if power.include_in_output && !power.redirects_resolved {
-                let power = Rc::get_mut_unchecked(power);
-                // inspect redirects and look at what we need to keep
-                for redirect in &power.pp_redirect {
-                    if let Some(power_name) = &redirect.pch_name {
-                        mark_power_for_inclusion(
-                            &power_name,
-                            &power.archetypes,
-                            power_cats,
-                            power_sets,
-                            *p_powers.get(),
-                        );
-                    }
+    for mut power in powers.values().map(|p| p.borrow_mut()) {
+        if power.include_in_output && !power.redirects_resolved {
+            // inspect redirects and look at what we need to keep
+            for redirect in &power.pp_redirect {
+                if let Some(power_name) = &redirect.pch_name {
+                    mark_power_for_inclusion(
+                        &power_name,
+                        &power.archetypes,
+                        power_cats,
+                        power_sets,
+                        powers,
+                    );
                 }
-                power.redirects_resolved = true;
-                count_resolved += 1;
             }
+            power.redirects_resolved = true;
+            count_resolved += 1;
         }
     }
     count_resolved
 }
 
+/// Iterates through all of the enhancement set categories and tags the powers that can be enhanced
+/// by them.
 fn match_enh_categories_to_powers(boost_sets: &Keyed<BoostSet>, powers: &mut Keyed<BasePower>) {
-    for boost_set in boost_sets.values() {
+    for boost_set in boost_sets.values().map(|b| b.borrow()) {
         if let Some(category_name) = &boost_set.pch_group_name {
             for power_name in &boost_set.ppch_powers {
-                if let Some(power) = powers.get_mut(power_name) {
-                    let power = unsafe { Rc::get_mut_unchecked(power) };
+                if let Some(power) = powers.get(power_name) {
                     power
+                        .borrow_mut()
                         .enhancement_set_categories_allowed
                         .insert(category_name.clone());
                 }
             }
         }
     }
+}
+
+/// Runs a few fix-ups on data contained in power categories, sets, and powers. This comes from
+/// some code in Common/entity/powers_load.c. This should always be called last.
+fn fix_data_in_power_hierarchy(power_categories: &mut Vec<ObjRef<PowerCategory>>) {
+    power_categories
+        .iter()
+        .map(|p| p.borrow())
+        .for_each(|pcat| {
+            if pcat.top_level {
+                let pcat_name = pcat.pch_name.as_ref().unwrap();
+                pcat.pp_power_sets
+                    .iter()
+                    .map(|p| p.borrow())
+                    .for_each(|pset| {
+                        pset.pp_powers
+                            .iter()
+                            .map(|p| p.borrow_mut())
+                            .for_each(|mut power| {
+                                let power_name = power.pch_name.as_ref().unwrap();
+                                // All prestige, inherent, and incarnate powers are free
+                                if pcat_name == "Prestige" {
+                                    power.b_free = true;
+                                    power.i_force_level_bought = 0;
+                                } else if pcat_name == "Inherent" || power_name == "Inherent" {
+                                    power.b_free = true;
+                                    power.b_auto_issue = true;
+                                } else if pcat_name == "Incarnate" {
+                                    power.b_free = true;
+                                }
+
+                                // Set max boosts for temporary powers to zero since you can't slot them.
+                                // Disallow all kinds of boosts in them. Temporary powers are also free.
+                                if pcat_name == "Temporary_Powers" {
+                                    power.b_free = true;
+                                    power.i_max_boosts = 0;
+                                    match power.e_type {
+                                        PowerType::kPowerType_Boost
+                                        | PowerType::kPowerType_GlobalBoost => (),
+                                        _ => power.pe_boosts_allowed.clear(),
+                                    }
+                                }
+                            });
+                    });
+            }
+        });
 }
 
 /// Read all .bin files and merge them into a single powers dictionary.
@@ -359,7 +404,7 @@ pub fn load_powers_dictionary(config: &PowersConfig) -> Result<PowersDictionary,
     match_enh_categories_to_powers(&boost_sets, &mut powers);
 
     // filter out power sets
-    power_sets.retain(|pset_name, _| {
+    power_sets.0.retain(|pset_name, _| {
         !config
             .filter_powersets
             .iter()
@@ -368,9 +413,9 @@ pub fn load_powers_dictionary(config: &PowersConfig) -> Result<PowersDictionary,
 
     println!("Merging dictionaries ...");
     // move powers into their power sets
-    for pset in power_sets.values_mut() {
-        let pset = unsafe { Rc::get_mut_unchecked(pset) };
-        for power_name in &pset.pp_power_names {
+    for mut pset in power_sets.values_mut().map(|p| p.borrow_mut()) {
+        let power_names = pset.pp_power_names.clone();
+        for power_name in &power_names {
             if let Some(power) = powers.get(power_name) {
                 pset.pp_powers.push(Rc::clone(power));
             }
@@ -378,9 +423,9 @@ pub fn load_powers_dictionary(config: &PowersConfig) -> Result<PowersDictionary,
     }
 
     // move power sets into their power categories
-    for pcat in power_categories.values_mut() {
-        let pcat = unsafe { Rc::get_mut_unchecked(pcat) };
-        for power_set_name in &pcat.ppch_power_set_names {
+    for mut pcat in power_categories.values_mut().map(|p| p.borrow_mut()) {
+        let power_set_names = pcat.ppch_power_set_names.clone();
+        for power_set_name in &power_set_names {
             if let Some(pset) = power_sets.get(power_set_name) {
                 pcat.pp_power_sets.push(Rc::clone(pset));
             }
@@ -392,26 +437,36 @@ pub fn load_powers_dictionary(config: &PowersConfig) -> Result<PowersDictionary,
         .values()
         .map(|pcat| Rc::clone(pcat))
         .collect();
-
     // automatically include all power sets and powers linked to the top level
     // also does a sanity check and excludes any that have no powers/power sets
-    power_categories_returned.iter_mut().for_each(|pcat| {
-        if pcat.top_level {
-            let pcat = unsafe { Rc::get_mut_unchecked(pcat) };
-            let pcat_ats = pcat.archetypes.clone();
-            pcat.pp_power_sets.iter_mut().for_each(|pset| {
-                let pset = unsafe { Rc::get_mut_unchecked(pset) };
-                pset.pp_powers.iter_mut().for_each(|power| {
-                    let power = unsafe { Rc::get_mut_unchecked(power) };
-                    power.include_in_output = true;
-                    power.archetypes = pcat_ats.clone();
-                });
-                pset.include_in_output = pset.pp_powers.iter().any(|pwr| pwr.include_in_output);
-            });
-            pcat.include_in_output = pcat.pp_power_sets.iter().any(|pset| pset.include_in_output);
-            pcat.top_level = pcat.include_in_output;
-        }
-    });
+    power_categories_returned
+        .iter()
+        .map(|p| p.borrow_mut())
+        .for_each(|mut pcat| {
+            if pcat.top_level {
+                pcat.pp_power_sets
+                    .iter()
+                    .map(|p| p.borrow_mut())
+                    .for_each(|mut pset| {
+                        pset.pp_powers
+                            .iter()
+                            .map(|p| p.borrow_mut())
+                            .for_each(|mut power| {
+                                power.include_in_output = true;
+                                power.archetypes = pcat.archetypes.clone();
+                            });
+                        pset.include_in_output = pset
+                            .pp_powers
+                            .iter()
+                            .any(|pwr| pwr.borrow().include_in_output);
+                    });
+                pcat.include_in_output = pcat
+                    .pp_power_sets
+                    .iter()
+                    .any(|pset| pset.borrow().include_in_output);
+                pcat.top_level = pcat.include_in_output;
+            }
+        });
 
     println!("Resolving entity defs, power grants, and redirects ...");
     loop {
@@ -430,13 +485,16 @@ pub fn load_powers_dictionary(config: &PowersConfig) -> Result<PowersDictionary,
         }
     }
 
+    println!("Final clean up ...");
+    fix_data_in_power_hierarchy(&mut power_categories_returned);
+
     let elapsed = Instant::now().duration_since(begin_time);
     println!("Done.");
     println!("Powers dictionary parsed in {} seconds.", elapsed.as_secs());
     Ok(PowersDictionary {
         power_categories: power_categories_returned,
         archetypes,
-        attrib_names,
+        attrib_names: Rc::new(attrib_names),
     })
 }
 
@@ -485,7 +543,7 @@ fn read_classes_bin(
         .map_err(|e| ecxt!("Unable to open classes!", e))?;
     let strings = bin_parse::serialized_read_string_pool(&mut reader)
         .map_err(|e| ecxt!("Unable to parse string pool!", e))?;
-    let archetypes = bin_parse::serialized_read_archetypes(&mut reader, &strings, messages)
+    let archetypes = bin_parse::serialized_read_archetypes(&mut reader, &strings, messages, false)
         .map_err(|e| ecxt!("Unable to parse classes table.", e))?;
     println!("Read {} archetypes.", archetypes.len());
     Ok(archetypes)
@@ -502,13 +560,14 @@ fn read_powercats_bin(
         .map_err(|e| ecxt!("Unable to open power categories!", e))?;
     let strings = bin_parse::serialized_read_string_pool(&mut reader)
         .map_err(|e| ecxt!("Unable to parse string pool!", e))?;
-    let mut powercats =
-        bin_parse::serialized_read_power_categories(&mut reader, &strings, messages)
-            .map_err(|e| ecxt!("Unable to parse power categories table.", e))?;
+    let powercats = bin_parse::serialized_read_power_categories(&mut reader, &strings, messages)
+        .map_err(|e| ecxt!("Unable to parse power categories table.", e))?;
     println!("Read {} power categories.", powercats.len());
     if config.power_categories.len() > 0 {
-        powercats.values_mut().for_each(|pcat| {
-            if let Some(pcat) = Rc::get_mut(pcat) {
+        powercats
+            .values()
+            .map(|p| p.borrow_mut())
+            .for_each(|mut pcat| {
                 if config
                     .power_categories
                     .iter()
@@ -516,19 +575,19 @@ fn read_powercats_bin(
                 {
                     pcat.top_level = true;
                 }
-            }
-        });
-        let top_level_count = powercats.values().filter(|pcat| pcat.top_level).count();
+            });
+        let top_level_count = powercats
+            .values()
+            .filter(|pcat| pcat.borrow().top_level)
+            .count();
         if top_level_count == 0 {
             println!("No power categories to work on. Did you filter them all?");
             process::exit(1);
         }
         println!("Filtered to {} top level categories", top_level_count);
     } else {
-        powercats.values_mut().for_each(|pcat| {
-            if let Some(pcat) = Rc::get_mut(pcat) {
-                pcat.top_level = true;
-            }
+        powercats.values().for_each(|pcat| {
+            pcat.borrow_mut().top_level = true;
         });
     }
     Ok(powercats)
@@ -579,7 +638,7 @@ fn read_villain_classes_bin(
         .map_err(|e| ecxt!("Unable to open classes!", e))?;
     let strings = bin_parse::serialized_read_string_pool(&mut reader)
         .map_err(|e| ecxt!("Unable to parse string pool!", e))?;
-    let archetypes = bin_parse::serialized_read_archetypes(&mut reader, &strings, messages)
+    let archetypes = bin_parse::serialized_read_archetypes(&mut reader, &strings, messages, true)
         .map_err(|e| ecxt!("Unable to parse classes table.", e))?;
     println!("Read {} villain archetypes.", archetypes.len());
     Ok(archetypes)

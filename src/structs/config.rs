@@ -20,6 +20,23 @@ pub struct AssetsConfig {
     pub powers_icon_format: String,
 }
 
+
+/// Configuration information for output format.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputFormatConfig {
+    /// The traditional "API" format with easily parsed JSON.
+    Api,
+    /// Raw dump of the bins as represented in memory.
+    Raw,
+}
+
+impl Default for OutputFormatConfig {
+    fn default() -> Self {
+        OutputFormatConfig::Api
+    }
+}
+
 /// Configuration information for JSON output style.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -46,6 +63,9 @@ pub struct PowersConfig {
     /// Local date/time that the data were extracted. (Set at runtime.)
     #[serde(skip)]
     pub extract_date: Option<DateTime<Local>>,
+    /// Output format.
+    #[serde(default)]
+    pub output_format: OutputFormatConfig,
     /// JSON output style.
     #[serde(default)]
     pub output_style: OutputStyleConfig,

@@ -3,7 +3,6 @@ use crate::structs::{
     Keyed, PetCommandStrings, PowerNameRef, VillainDef, VillainDefFlags, VillainExclusion,
     VillainLevelDef,
 };
-use std::rc::Rc;
 
 /// Reads all of the villain definitions in the current .bin file.
 ///
@@ -33,8 +32,8 @@ where
     let mut villains = Keyed::<_>::new();
     for _ in 0..v_size {
         let villain = read_villain_def(reader, strings, messages)?;
-        if let Some(villain_name) = &villain.name {
-            villains.insert(villain_name.clone(), Rc::new(villain));
+        if let Some(villain_name) = villain.name.clone() {
+            villains.insert(villain_name, villain);
         }
     }
 

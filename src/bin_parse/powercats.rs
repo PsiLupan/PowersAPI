@@ -1,6 +1,5 @@
 use super::*;
 use crate::structs::{Keyed, PowerCategory};
-use std::rc::Rc;
 
 /// Reads all of the power categories in the current .bin file.
 ///
@@ -31,8 +30,8 @@ where
     let pcat_size: usize = bin_read(reader)?;
     for _ in 0..pcat_size {
         let powercat = read_power_category(reader, strings, messages)?;
-        if let Some(powercat_name) = &powercat.pch_name {
-            powercats.insert(powercat_name.clone(), Rc::new(powercat));
+        if let Some(powercat_name) = powercat.pch_name.clone() {
+            powercats.insert(powercat_name, powercat);
         }
     }
 

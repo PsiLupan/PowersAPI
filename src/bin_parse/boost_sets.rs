@@ -1,6 +1,5 @@
 use super::*;
 use crate::structs::{BoostList, BoostSet, BoostSetBonus, Keyed, NameKey};
-use std::rc::Rc;
 
 /// Reads all of the boost sets in the current .bin file.
 ///
@@ -29,8 +28,8 @@ where
     let bs_size: usize = bin_read(reader)?;
     for _ in 0..bs_size {
         let boost_set = read_boost_set(reader, strings, messages)?;
-        if let Some(name) = &boost_set.pch_name {
-            boost_sets.insert(name.clone(), Rc::new(boost_set));
+        if let Some(name) = boost_set.pch_name.clone() {
+            boost_sets.insert(name, boost_set);
         }
     }
 

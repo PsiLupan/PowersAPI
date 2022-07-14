@@ -2,7 +2,6 @@ use super::*;
 use crate::structs::{
     Archetype, CharacterAttributes, CharacterAttributesTable, Keyed, NameKey, NamedTable,
 };
-use std::rc::Rc;
 
 /// Reads all of the archetypes in the current .bin file.
 ///
@@ -11,6 +10,7 @@ use std::rc::Rc;
 /// * `reader` - An open `Read` + `Seek`
 /// * `strings` - The `StringPool` for archetypes
 /// * `messages` - The global `MessageStore` containing client messages
+/// * `is_villain` - Are we loading villain defs?
 ///
 /// # Returns:
 ///
@@ -20,6 +20,7 @@ pub fn serialized_read_archetypes<T>(
     reader: &mut T,
     strings: &StringPool,
     messages: &MessageStore,
+    is_villain: bool,
 ) -> ParseResult<Keyed<Archetype>>
 where
     T: Read + Seek,
@@ -30,9 +31,10 @@ where
     let mut archetypes = Keyed::<_>::new();
     let at_size: usize = bin_read(reader)?;
     for _ in 0..at_size {
-        let archetype = read_archetype(reader, strings, messages)?;
-        if let Some(class_key) = &archetype.class_key {
-            archetypes.insert(class_key.clone(), Rc::new(archetype));
+        let mut archetype = read_archetype(reader, strings, messages)?;
+        archetype.is_villain = is_villain;
+        if let Some(class_key) = archetype.class_key.clone() {
+            archetypes.insert(class_key, archetype);
         }
     }
 

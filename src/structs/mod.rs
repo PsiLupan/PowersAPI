@@ -24,6 +24,7 @@
 //! * `pe_` - An array of enum values.
 //! * `rgba_` - An `RGBA` value.
 //! * `vec_` - A `Vec3` value.
+mod attribs;
 mod boosts;
 pub mod config;
 mod enums;
@@ -32,10 +33,13 @@ mod namekey;
 mod strings;
 mod villains;
 
+pub use attribs::*;
 pub use boosts::*;
 pub use enums::*;
 pub use flags::*;
 pub use namekey::*;
+use serde::{Serialize, Serializer};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::default::Default;
 use std::fmt;
@@ -43,446 +47,67 @@ use std::rc::Rc;
 pub use strings::*;
 pub use villains::*;
 
-pub type Keyed<T> = HashMap<NameKey, Rc<T>>;
+/// Short-hand for shareable references.
+pub type ObjRef<T> = Rc<RefCell<T>>;
 
-/// Defines the attributes which can be modified by effects.
-#[derive(Debug, Default)]
-pub struct CharacterAttributes {
-	/// Mod: The number of points to add or remove from current hit points.
-	/// ModBase: 0.0, Add, TimesMax, Absolute, HitPoints, DumpAttribs: NO_CUR
-	pub f_damage_type: [f32; Self::DAMAGE_TYPE_SIZE],
-	/// Cur: Number of hitpoints the player currently has. Running tally.
-	/// Mod: How many hitpoints to add or remove from the tally.
-	/// ModBase: 0.0, Add, TimesMax, Absolute, HitPoints, DumpAttribs: ALWAYS
-	pub f_hit_points: f32,
-	/// Max: Number of absorb points the player currently has. Running tally.
-	/// ModBase: 0.0, Add, TimesMax, Absolute, HitPoints, DumpAttribs: ALWAYS
-	pub f_absorb: f32,
-	/// Cur: Measure of endurance the player currently has. Running tally.
-	/// Mod: How many points to add or remove from the tally.
-	/// ModBase: 0.0, Add, TimesMax, Absolute, DumpAttribs: ALWAYS
-	pub f_endurance: f32,
-	/// Cur: Measure of Insight the player currently has. Running tally.
-	/// Mod: How many points to add or remove from the tally.
-	/// ModBase: 0.0, Add, TimesMax, Absolute, DumpAttribs: ALWAYS, Synonym: Idea
-	pub f_insight: f32,
-	/// Cur: Measure of Rage the player currently has. Running tally.
-	/// Mod: How many points to add or remove from the tally.
-	/// ModBase: 0.0, Add, TimesMax, Absolute, DumpAttribs: ALWAYS
-	pub f_rage: f32,
-	/// Cur: The change to hit a target. .75==75%, min 5%, max 95%
-	/// Mod: This is a percentage to be added to the base percentage value.
-	/// ModBase: 0.0, Add, CLAMP_CUR: No
-	pub f_to_hit: f32,
-	/// Cur: The chance to avoid being hit by a certain kind of attack. Opposes ToHit.
-	/// Mod: This is a percentage added to the base percentage value.
-	/// ModBase: 0.0, Add
-	pub f_defense_type: [f32; Self::DEFENSE_TYPE_SIZE],
-	/// Cur: The chance of avoiding being hit by a direct attack.
-	/// Mod: This is a percentage to be added to the base percentage value.
-	/// ModBase: 0.0, Add
-	pub f_defense: f32,
-	/// Cur: How fast the character travels as a percentage of basic character speed. Defaults to 1.0 (100%) (30ft/s).
-	/// Mod: A percentage to be multiplied with the base speed value.
-	/// ModBase: 1.0, Multiply
-	pub f_speed_running: f32,
-	/// Cur: How fast the character travels as a percentage of basic character speed. Defaults to 1.0 (100%) (30ft/s).
-	/// Mod: A percentage to be multiplied with the base speed value.
-	/// ModBase: 1.0, Multiply
-	pub f_speed_flying: f32,
-	/// Cur: How fast the character travels as a percentage of basic character speed. Defaults to 1.0 (100%) (30ft/s).
-	/// Mod: A percentage to be multiplied with the base speed value.
-	/// ModBase: 1.0, Multiply
-	pub f_speed_swimming: f32,
-	/// Cur: How fast the character travels as a percentage of basic character speed. Defaults to 1.0 (100%) (30ft/s).
-	/// Mod: A percentage to be multiplied with the base speed value.
-	/// ModBase: 1.0, Multiply
-	pub f_speed_jumping: f32,
-	/// Cur: How well the character jumps as a percentage of basic character jump velocity. Defaults to 1.0 (100%) (12ft).
-	/// Mod: A percentage to be multiplied with the base value.
-	/// ModBase: 1.0, Multiply
-	pub f_jump_height: f32,
-	/// Cur: Controls the character's ability to move. Default is 0.0 (use built-ins), running is 1.0, jumping is 0.03.
-	/// Mod: This is a percentage to be multiplied with the base value.
-	/// ModBase: 1.0, Multiply
-	pub f_movement_control: f32,
-	/// Cur: Controls the character's ability to move. Default is 0.0 (use built-ins), running is 0.3, jumping is 0.
-	/// Mod: This is a percentage to be multiplied with the base value.
-	/// ModBase: 1.0, Multiply
-	pub f_movement_friction: f32,
-	/// Cur: The chance of avoiding being seen when in eyeshot of an enemy.
-	/// Mod: This is a percentage to be added to the base percentage value.
-	/// ModBase: 0.0, Add
-	pub f_stealth: f32,
-	/// Cur: This is the distance subtracted from an enemy's perception distance.
-	/// Mod: This is a distance to be added to the base distance value.
-	/// ModBase: 0.0, Add
-	pub f_stealth_radius: f32,
-	/// Cur: This is the distance subtracted from an enemy player's perception distance.
-	/// Mod: This is a distance to be added to the base distance value.
-	/// ModBase: 0.0, Add
-	pub f_stealth_radius_player: f32,
-	/// Cur: This is the distance the character can see.
-	/// Mod: This is a percentage improvement over the base.
-	/// ModBase: 1.0, Mutliply, PlusAbsolute
-	pub f_perception_radius: f32,
-	/// Cur: This is the rate at which hit points are regenerated. (1.0 = 100% max HP per minute.)
-	/// Mod: This is a rate which will be multiplied by the base rate.
-	/// ModBase: 1.0, Multiply
-	pub f_regeneration: f32,
-	/// Cur: This is the rate at which endurance is recovered. (1.0 = 100% max endurance per minute.)
-	/// Mod: This is a rate which will be multiplied by the base rate.
-	/// ModBase: 1.0, Multiply
-	pub f_recovery: f32,
-	/// Cur: This is the rate at which insight will recover. (1.0 = 100% max insight per minute.)
-	/// Mod: This is a rate which will be multiplied by the base rate.
-	/// ModBase: 1.0, Multiply
-	pub f_insight_recovery: f32,
-	/// Cur: The general threat level of the character, used by AI.
-	/// Mod: N/A
-	/// ModBase: 0.0, Add
-	pub f_threat_level: f32,
-	/// Cur: This is how much the character is taunting a target. (Not really useful, modifying makes the AI more belligerent to you.)
-	/// Mod: N/A
-	/// ModBase: 1.0, Add
-	pub f_taunt: f32,
-	/// Cur: This is how much the character is being placated. (Not really useful, modifying makes the AI less belligerent to you.)
-	/// Mod: N/A
-	/// ModBase: 1.0, Add
-	pub f_placate: f32,
-	/// Cur: Wanders around. Boolean.
-	/// ModBase: 0.0, Add
-	pub f_confused: f32,
-	/// Cur: Wants to run away. Boolean.
-	/// ModBase: 0.0, Add
-	pub f_afraid: f32,
-	/// Cur: Cowers. Boolean.
-	/// ModBase: 0.0, Add
-	pub f_terrorized: f32,
-	/// Cur: Cannot move or execute powers. Boolean.
-	/// ModBase: 0.0, Add
-	pub f_held: f32,
-	/// Cur: Cannot move. Boolean.
-	/// ModBase: 0.0, Add
-	pub f_immobilized: f32,
-	/// Cur: Cannot execute powers. Boolean.
-	/// ModBase: 0.0, Add
-	pub f_stunned: f32,
-	/// Cur: Immobilize + stun unless awoken. Boolean.
-	/// ModBase: 0.0, Add
-	pub f_sleep: f32,
-	/// Cur: Can fly. Boolean.
-	/// ModBase: 0.0, Add
-	pub f_fly: f32,
-	/// Cur: Can use jump pack. Boolean.
-	/// ModBase: 0.0, Add
-	pub f_jump_pack: f32,
-	/// Cur: Initiates a teleport. Boolean.
-	/// ModBase: 0.0, Add
-	pub f_teleport: f32,
-	/// Cur: Only caster can hit themself. Boolean.
-	/// ModBase: 0.0, Add
-	pub f_untouchable: f32,
-	/// Cur: Doesn't collide with others. Boolean.
-	/// ModBase: 0.0, Add
-	pub f_intangible: f32,
-	/// Cur: Powers only affect self. Boolean.
-	/// ModBase: 0.0, Add
-	pub f_only_affects_self: f32,
-	/// Cur: XP gain factor.
-	/// ModBase: 0.0, Add
-	pub f_experience_gain: f32,
-	/// Cur: Influence gain factor.
-	/// ModBase: 0.0, Add
-	pub f_influence_gain: f32,
-	/// Cur: Prestige gain factor.
-	/// ModBase: 0.0, Add
-	pub f_prestige_gain: f32,
-	/// Cur: Doesn't do anything.
-	/// ModBase: 0.0, Add
-	pub f_null_bool: f32,
-	/// Cur: How hard the character knocks enemies up as a percentage of base. Default to 1.0 (100%).
-	/// Mod: A percentage to be multiplied with the base value.
-	/// ModBase: 0.0, Multiply
-	pub f_knock_up: f32,
-	/// Cur: How hard the character knocks enemies back as a percentage of base. Default to 1.0 (100%).
-	/// Mod: A percentage to be multiplied with the base value.
-	/// ModBase: 0.0, Multiply
-	pub f_knock_back: f32,
-	/// Cur: How hard the character repels enemies as a percentage of base. Default to 1.0 (100%).
-	/// Mod: A percentage to be multiplied with the base value.
-	/// ModBase: 0.0, Multiply
-	pub f_repel: f32,
-	/// Cur: Unused.
-	/// Mod: Unused.
-	/// Str: A percentage which is multiplied with a power's facets.
-	/// ModBase: 1.0, Multiply, DumpAttribs: STR_RES
-	pub f_accuracy: f32,
-	/// Cur: Unused.
-	/// Mod: Unused.
-	/// Str: A percentage which is multiplied with a power's facets.
-	/// ModBase: 1.0, Multiply, DumpAttribs: STR_RES
-	pub f_radius: f32,
-	/// Cur: Unused.
-	/// Mod: Unused.
-	/// Str: A percentage which is multiplied with a power's facets.
-	/// ModBase: 1.0, Multiply, DumpAttribs: STR_RES
-	pub f_arc: f32,
-	/// Cur: Unused.
-	/// Mod: Unused.
-	/// Str: A percentage which is multiplied with a power's facets.
-	/// ModBase: 1.0, Multiply, DumpAttribs: STR_RES
-	pub f_range: f32,
-	/// Cur: Unused.
-	/// Mod: Unused.
-	/// Str: A rate which will be multiplied by the base (hard-coded) rate.
-	/// ModBase: 1.0, Multiply, DumpAttribs: STR_RES
-	pub f_time_to_activate: f32,
-	/// Cur: Unused.
-	/// Mod: Unused.
-	/// Str: A rate which will be multiplied by the base (hard-coded) rate.
-	/// ModBase: 1.0, Multiply, DumpAttribs: STR_RES
-	pub f_recharge_time: f32,
-	/// Cur: Unused.
-	/// Mod: Unused.
-	/// Str: A rate which will be multiplied by the base (hard-coded) rate.
-	/// ModBase: 1.0, Multiply, DumpAttribs: STR_RES
-	pub f_interrupt_time: f32,
-	/// Cur: Unused.
-	/// Mod: Unused.
-	/// Str: This is a magnitude which will divide into the cost.
-	/// ModBase: 1.0, Multiply, DumpAttribs: STR_RES
-	pub f_endurance_discount: f32,
-	/// Cur: Unused.
-	/// Mod: Unused.
-	/// Str: This is a magnitude which will divide into the cost.
-	/// ModBase: 1.0, Multiply, DumpAttribs: STR_RES, NoDump
-	pub f_insight_discount: f32,
-	/// Cur: A "fake" attribute which shows up as a meter in the UI.
-	/// Mod: Amount to increase or decrease the meter.
-	/// ModBase: 0.0, Add, PlusAbsolute
-	pub f_meter: f32,
-	/// Cur: The chance to avoid being hit by a certain kind of attack. Opposes Accuracy. PvP only.
-	/// Mod: This is a percentage added to the base percentage value.
-	/// Str: Anti-accuracy.
-	/// ModBase: 0.0, Add
-	pub f_elusivity: [f32; Self::ELUSIVITY_SIZE],
-	pub f_elusivity_base: f32,
-}
+/// Dictionary that maps `NameKey` values to their objects (powers, power sets, etc.).
+#[derive(Debug)]
+pub struct Keyed<T>(pub HashMap<NameKey, ObjRef<T>>);
 
-macro_rules! offsets {
-	($($name:ident, $offset:literal),+ $(,)?) => {
-		$( pub const $name: usize = $offset; )+
-	}
-}
-
-#[allow(dead_code)]
-impl CharacterAttributes {
-	pub const DAMAGE_TYPE_SIZE: usize = 20;
-	pub const DEFENSE_TYPE_SIZE: usize = 20;
-	pub const ELUSIVITY_SIZE: usize = 20;
-
-	// This is pretty annoying but the bin files refer to the
-	// various fields in CharacterAttributes by their struct offset.
-	// Hopefully no one modifies the source struct...
-	// If they do, make sure to fix ranges in effect.rs:get_scaled_effect()
-	#[rustfmt::skip]
-	offsets!(
-		OFFSET_DMG_0, 0,
-		OFFSET_DMG_1, 4,
-		OFFSET_DMG_2, 8,
-		OFFSET_DMG_3, 12,
-		OFFSET_DMG_4, 16,
-		OFFSET_DMG_5, 20,
-		OFFSET_DMG_6, 24,
-		OFFSET_DMG_7, 28,
-		OFFSET_DMG_8, 32,
-		OFFSET_DMG_9, 36,
-		OFFSET_DMG_10, 40,
-		OFFSET_DMG_11, 44,
-		OFFSET_DMG_12, 48,
-		OFFSET_DMG_13, 52,
-		OFFSET_DMG_14, 56,
-		OFFSET_DMG_15, 60,
-		OFFSET_DMG_16, 64,
-		OFFSET_DMG_17, 68,
-		OFFSET_DMG_18, 72,
-		OFFSET_DMG_19, 76,
-		OFFSET_HIT_POINTS, 80,
-		OFFSET_ABSORB, 84,
-		OFFSET_ENDURANCE, 88,
-		OFFSET_INSIGHT, 92,
-		OFFSET_RAGE, 96,
-		OFFSET_TOHIT, 100,
-		OFFSET_DEF_0, 104,
-		OFFSET_DEF_1, 108,
-		OFFSET_DEF_2, 112,
-		OFFSET_DEF_3, 116,
-		OFFSET_DEF_4, 120,
-		OFFSET_DEF_5, 124,
-		OFFSET_DEF_6, 128,
-		OFFSET_DEF_7, 132,
-		OFFSET_DEF_8, 136,
-		OFFSET_DEF_9, 140,
-		OFFSET_DEF_10, 144,
-		OFFSET_DEF_11, 148,
-		OFFSET_DEF_12, 152,
-		OFFSET_DEF_13, 156,
-		OFFSET_DEF_14, 160,
-		OFFSET_DEF_15, 164,
-		OFFSET_DEF_16, 168,
-		OFFSET_DEF_17, 172,
-		OFFSET_DEF_18, 176,
-		OFFSET_DEF_19, 180,
-		OFFSET_DEFENSE, 184,
-		OFFSET_RUNNING_SPEED, 188,
-		OFFSET_FLYING_SPEED, 192,
-		OFFSET_SWIMMING_SPEED, 196,
-		OFFSET_JUMPING_SPEED, 200,
-		OFFSET_JUMP_HEIGHT, 204,
-		OFFSET_MOVEMENT_CONTROL, 208,
-		OFFSET_MOVEMENT_FRICTION, 212,
-		OFFSET_STEALTH, 216,
-		OFFSET_STEALTH_RADIUS_PVE, 220,
-		OFFSET_STEALTH_RADIUS_PVP, 224,
-		OFFSET_PERCEPTION_RADIUS, 228,
-		OFFSET_REGENERATION, 232,
-		OFFSET_RECOVERY, 236,
-		OFFSET_INSIGHT_RECOVERY, 240,
-		OFFSET_THREAT_LEVEL, 244,
-		OFFSET_TAUNT, 248,
-		OFFSET_PLACATE, 252,
-		OFFSET_CONFUSED, 256,
-		OFFSET_AFRAID, 260,
-		OFFSET_TERRORIZED, 264,
-		OFFSET_HELD, 268,
-		OFFSET_IMMOBILIZED, 272,
-		OFFSET_STUNNED, 276,
-		OFFSET_SLEEP, 280,
-		OFFSET_FLY, 284,
-		OFFSET_JUMP_PACK, 288,
-		OFFSET_TELEPORT, 292,
-		OFFSET_UNTOUCHABLE, 296,
-		OFFSET_INTANGIBLE, 300,
-		OFFSET_ONLY_AFFECTS_SELF, 304,
-		OFFSET_EXPERIENCE_GAIN, 308,
-		OFFSET_INFLUENCE_GAIN, 312,
-		OFFSET_PRESTIGE_GAIN, 316,
-		OFFSET_EVADE, 320,
-		OFFSET_KNOCKUP, 324,
-		OFFSET_KNOCKBACK, 328,
-		OFFSET_REPEL, 332,
-		OFFSET_ACCURACY, 336,
-		OFFSET_RADIUS, 340,
-		OFFSET_ARC, 344,
-		OFFSET_RANGE, 348,
-		OFFSET_TIME_TO_ACTIVATE, 352,
-		OFFSET_RECHARGE_TIME, 356,
-		OFFSET_INTERRUPT_TIME, 360,
-		OFFSET_ENDURANCE_DISCOUNT, 364,
-		OFFSET_INSIGHT_DISCOUNT, 368,
-		OFFSET_METER, 372,
-		OFFSET_ELUSIVITY_0, 376,
-		OFFSET_ELUSIVITY_1, 380,
-		OFFSET_ELUSIVITY_2, 384,
-		OFFSET_ELUSIVITY_3, 388,
-		OFFSET_ELUSIVITY_4, 392,
-		OFFSET_ELUSIVITY_5, 396,
-		OFFSET_ELUSIVITY_6, 400,
-		OFFSET_ELUSIVITY_7, 404,
-		OFFSET_ELUSIVITY_8, 408,
-		OFFSET_ELUSIVITY_9, 412,
-		OFFSET_ELUSIVITY_10, 416,
-		OFFSET_ELUSIVITY_11, 420,
-		OFFSET_ELUSIVITY_12, 424,
-		OFFSET_ELUSIVITY_13, 428,
-		OFFSET_ELUSIVITY_14, 432,
-		OFFSET_ELUSIVITY_15, 436,
-		OFFSET_ELUSIVITY_16, 440,
-		OFFSET_ELUSIVITY_17, 444,
-		OFFSET_ELUSIVITY_18, 448,
-		OFFSET_ELUSIVITY_19, 452,
-		OFFSET_ELUSIVITY_BASE, 456,
-	);
-
+impl<T> Keyed<T> {
+	/// Create a new `Keyed<T>` dictionary.
 	pub fn new() -> Self {
-		Default::default()
+		Keyed(HashMap::new())
+	}
+
+	/// Get the object named by `key`, if any.
+	///
+	/// # Arguments
+	/// * `key` - The `NameKey` that references the desired object.
+	///
+	/// # Returns
+	/// An `ObjRef<T>` to the object if found, otherwise `None`.
+	pub fn get(&self, key: &NameKey) -> Option<&ObjRef<T>> {
+		self.0.get(key)
+	}
+
+	/// Insert a new object into the dictionary.
+	///
+	/// # Arguments
+	/// * `key` - The `NameKey` that references `value`.
+	/// * `value` - The object to store. It will automatically be wrapped as an `ObjRef<T>`.
+	pub fn insert(&mut self, key: NameKey, value: T) {
+		self.0.insert(key, Rc::new(RefCell::new(value)));
+	}
+
+	/// Gets the number of items in this dictionary.
+	///
+	/// # Returns
+	/// A `usize` value.
+	pub fn len(&self) -> usize {
+		self.0.len()
+	}
+
+	/// Gets a visitor that iterates over all values in the dictionary.
+	///
+	/// # Returns
+	/// An iterator with element type `ObjRef<T>`.
+	pub fn values<'a>(&'a self) -> std::collections::hash_map::Values<'a, NameKey, ObjRef<T>> {
+		self.0.values()
+	}
+
+	/// Gets a visitor that iterates over all values mutably in the dictionary.
+	///
+	/// # Returns
+	/// An iterator with mutable element type `ObjRef<T>`.
+	pub fn values_mut<'a>(
+		&'a mut self,
+	) -> std::collections::hash_map::ValuesMut<'a, NameKey, ObjRef<T>> {
+		self.0.values_mut()
 	}
 }
 
-/// Defines the attributes which can be modified by effects.
-/// This is essentially a version of `CharacterAttributes` where each entry is
-/// an array rather than a single value. The arrays are typically 50 entries
-/// long, representing values for levels 1-50.
-#[derive(Debug, Default)]
-pub struct CharacterAttributesTable {
-	pub pf_damage_type: [Vec<f32>; CharacterAttributes::DAMAGE_TYPE_SIZE],
-	pub pf_hit_points: Vec<f32>,
-	pub pf_endurance: Vec<f32>,
-	pub pf_insight: Vec<f32>,
-	pub pf_rage: Vec<f32>,
-	pub pf_to_hit: Vec<f32>,
-	pub pf_defense_type: [Vec<f32>; CharacterAttributes::DEFENSE_TYPE_SIZE],
-	pub pf_defense: Vec<f32>,
-	pub pf_speed_running: Vec<f32>,
-	pub pf_speed_flying: Vec<f32>,
-	pub pf_speed_swimming: Vec<f32>,
-	pub pf_speed_jumping: Vec<f32>,
-	pub pf_jump_height: Vec<f32>,
-	pub pf_movement_control: Vec<f32>,
-	pub pf_movement_friction: Vec<f32>,
-	pub pf_stealth: Vec<f32>,
-	pub pf_stealth_radius: Vec<f32>,
-	pub pf_stealth_radius_player: Vec<f32>,
-	pub pf_perception_radius: Vec<f32>,
-	pub pf_regeneration: Vec<f32>,
-	pub pf_recovery: Vec<f32>,
-	pub pf_insight_recovery: Vec<f32>,
-	pub pf_threat_level: Vec<f32>,
-	pub pf_taunt: Vec<f32>,
-	pub pf_placate: Vec<f32>,
-	pub pf_confused: Vec<f32>,
-	pub pf_afraid: Vec<f32>,
-	pub pf_terrorized: Vec<f32>,
-	pub pf_held: Vec<f32>,
-	pub pf_immobilized: Vec<f32>,
-	pub pf_stunned: Vec<f32>,
-	pub pf_sleep: Vec<f32>,
-	pub pf_fly: Vec<f32>,
-	pub pf_jump_pack: Vec<f32>,
-	pub pf_teleport: Vec<f32>,
-	pub pf_untouchable: Vec<f32>,
-	pub pf_intangible: Vec<f32>,
-	pub pf_only_affects_self: Vec<f32>,
-	pub pf_experience_gain: Vec<f32>,
-	pub pf_influence_gain: Vec<f32>,
-	pub pf_prestige_gain: Vec<f32>,
-	pub pf_null_bool: Vec<f32>,
-	pub pf_knock_up: Vec<f32>,
-	pub pf_knock_back: Vec<f32>,
-	pub pf_repel: Vec<f32>,
-	pub pf_accuracy: Vec<f32>,
-	pub pf_radius: Vec<f32>,
-	pub pf_arc: Vec<f32>,
-	pub pf_range: Vec<f32>,
-	pub pf_time_to_activate: Vec<f32>,
-	pub pf_recharge_time: Vec<f32>,
-	pub pf_interrupt_time: Vec<f32>,
-	pub pf_endurance_discount: Vec<f32>,
-	pub pf_insight_discount: Vec<f32>,
-	pub pf_meter: Vec<f32>,
-	pub pf_elusivity: [Vec<f32>; CharacterAttributes::ELUSIVITY_SIZE],
-	pub pf_elusivity_base: Vec<f32>,
-	pub pf_absorb: Vec<f32>,
-}
-
-impl CharacterAttributesTable {
-	pub fn new() -> Self {
-		Default::default()
-	}
-}
-
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct NamedTable {
 	pub pch_name: Option<String>,
 	pub pf_values: Vec<f32>,
@@ -496,7 +121,7 @@ impl NamedTable {
 
 /// Defines the character class (archetype), which sets up the allowable powers and
 /// default hit points and defense for the character.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct Archetype {
 	pub pch_name: Option<String>,
 	pub pch_display_name: Option<String>,
@@ -585,7 +210,11 @@ pub struct Archetype {
 	pub i_unk4: u32,
 	// Non-data fields.
 	/// Used for lookup table purposes.
+	#[serde(skip)]
 	pub class_key: Option<NameKey>,
+	/// Marks if this was loaded from the villain def rather than player.
+	#[serde(skip)]
+	pub is_villain: bool,
 }
 
 impl Archetype {
@@ -610,7 +239,7 @@ impl Archetype {
 /// If the same Power appears in more than one PowerSet (and this includes
 /// each class-specific power-pool sets) then it needs to be defined again.
 /// This is true since each BasePower refers to a single PowerSet.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct BasePowerSet {
 	/// Internal name
 	pub pch_name: Option<String>,
@@ -655,7 +284,8 @@ pub struct BasePowerSet {
 	/// Error message to display when the player fails the SetBuyRequires
 	pub pch_set_buy_requires_failed_text: Option<String>,
 	/// The list of powers which are part of this power set.
-	pub pp_powers: Vec<Rc<BasePower>>,
+	#[serde(skip)]
+	pub pp_powers: Vec<ObjRef<BasePower>>,
 	/// The array of names of included powers.
 	pub pp_power_names: Vec<NameKey>,
 	/// How old the set has to be (in levels) before the power becomes available.
@@ -671,8 +301,10 @@ pub struct BasePowerSet {
 	/// Filename this definition came from.
 	pub pch_source_file: Option<String>,
 	pub i_force_level_bought: i32,
+
 	// Non-data fields.
 	/// Whether or not to include this power set in the output files.
+	#[serde(skip)]
 	pub include_in_output: bool,
 }
 
@@ -682,7 +314,7 @@ impl BasePowerSet {
 	}
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct PowerRedirect {
 	/// Name of the base power to redirect to.
 	pub pch_name: Option<NameKey>,
@@ -706,8 +338,18 @@ pub struct Vec3 {
 	pub z: f32,
 }
 
+impl Serialize for Vec3 {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		let value = format!("({}, {}, {})", self.x, self.y, self.z);
+		serializer.serialize_str(&value[..])
+	}
+}
+
 /// Extended targeting info.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModTargetInfo {
 	pub ppch_marker_names: Vec<String>,
 	pub pi_marker_count: Vec<i32>,
@@ -719,10 +361,10 @@ impl AttribModTargetInfo {
 	}
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct SuppressPair {
 	/// The index of the event to check. (See `PowerEvent` enum in character_base.h)
-	pub idx_event: i32,
+	pub idx_event: PowerEvent,
 	/// How many seconds it must be after the event before this `AttribMod` is allowed to go off.
 	pub ul_seconds: u32,
 	/// If true, the `AttribMod` will always be suppressed when in the event window.
@@ -737,7 +379,7 @@ impl SuppressPair {
 }
 
 /// Messages
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModMessages {
 	/// Message displayed to the attacker when he hits with this power.
 	pub pch_display_attacker_hit: Option<String>,
@@ -756,7 +398,7 @@ impl AttribModMessages {
 }
 
 /// FX
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModFX {
 	/// Sets the given bits for the lifetime of the `AttribMod`.
 	pub pi_continuing_bits: Vec<i32>,
@@ -817,13 +459,30 @@ impl fmt::Debug for RGBA {
 	}
 }
 
+impl Serialize for RGBA {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		// RRGGBBAA hex code
+		let value = format!(
+			"#{:02X}{:02X}{:02X}{:02X}",
+			self.r(),
+			self.g(),
+			self.b(),
+			self.a()
+		);
+		serializer.serialize_str(&value[..])
+	}
+}
+
 /// This defines an actual effect of a power. A power may have multiple
 /// `AttribModTemplate`s. When a power is used, these `AttribModTemplate`s are
 /// pared down to `AttribMod`s and attached to the targeted character.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModTemplate {
 	/// Array of byte offsets to the attribute in the `CharacterAttributes` struct.
-	pub p_attrib: Vec<SpecialAttrib>,
+	pub p_attrib: Vec<CharacterAttrib>,
 	/// Byte offset to the structure in the `Character` to the `CharacterAttributes` to modify.
 	pub off_aspect: u32,
 	/// Determines when this attrib mod is applied during the lifecycle of a power.
@@ -875,6 +534,8 @@ pub struct AttribModTemplate {
 	pub boost_mod_allowed: SpecialAttrib,
 	/// Boolean flags for this attribmod
 	pub i_flags: AttribModFlag,
+	/// Additional Boolean flags for this attribmod
+	pub i_flags_special: Vec<EffectSpecificAttribModFlag>,
 	pub p_messages: Option<AttribModMessages>,
 	pub p_fx: Option<AttribModFX>,
 	pub p_params: Option<AttribModParam>,
@@ -887,7 +548,7 @@ impl AttribModTemplate {
 }
 
 /// An effect group is a group of AttribMod templates that are always applied together.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct EffectGroup {
 	/// Effect tags (for chance mods, etc)
 	pub ppch_tags: Vec<String>,
@@ -922,7 +583,7 @@ impl EffectGroup {
 	}
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct PowerVar {
 	pub pch_name: Option<String>,
 	pub i_index: i32,
@@ -936,7 +597,7 @@ impl PowerVar {
 	}
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct PowerFX {
 	/// What .pfx file this was loaded from.
 	pub pch_source_file: Option<String>,
@@ -1025,6 +686,8 @@ pub struct PowerFX {
 	pub rgba_default_tint_primary: RGBA,
 	/// The tint to use for non-customized powers. This lets artists reuse tintable assets.
 	pub rgba_default_tint_secondary: RGBA,
+	/// Added i26p5. HideOriginal (maybe?)
+	pub b_hide_original: bool,
 }
 
 impl PowerFX {
@@ -1039,7 +702,7 @@ impl PowerFX {
 	}
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct CustomPowerFX {
 	/// Shown in the customization menu.
 	pub pch_display_name: Option<String>,
@@ -1050,8 +713,13 @@ pub struct CustomPowerFX {
 	/// `CustomPowerFX` with the same category should be considered exclusive of one another.  In the customization menu, the player will see
 	/// a list for each category.
 	pub pch_category: Option<String>,
+	#[serde(skip)]
 	pub p_fx: Option<PowerFX>,
 	pub pch_palette_name: Option<String>,
+
+	// Non-data fields.
+	/// Source file for `p_fx`.
+	pub visual_fx: Option<String>,
 }
 
 impl CustomPowerFX {
@@ -1062,7 +730,7 @@ impl CustomPowerFX {
 
 /// The basic definition of a power. This struct contains all the attributes of a power which are shared by all entities in the game. Character-specific
 /// differences (such as number of boosts, level, etc.) are kept in struct Power.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct BasePower {
 	/// Internal name of the power.
 	pub pch_name: Option<String>,
@@ -1114,7 +782,7 @@ pub struct BasePower {
 	/// this value is unused.
 	pub i_num_allowed: i32,
 	/// The list of attack groups this power is part of. Characters have defenses against each group individually.
-	pub pe_attack_types: Vec<SpecialAttrib>,
+	pub pe_attack_types: Vec<CharacterAttrib>,
 	/// This requires statement is checked to see if the player is allowed to buy the power or have it autoissued.
 	/// The requirements expression for this power. If empty, the power's only requirement is that the character is high enough level.
 	/// Otherwise, this is a postfix expression (each element being an operand or operator) evaluated to determine if the power is
@@ -1161,6 +829,9 @@ pub struct BasePower {
 	pub b_ignore_level_bought: bool,
 	/// Allows the power to ignore the untouchable aspect of the target.
 	pub b_shoot_through_untouchable: bool,
+	/// Added i27: Allows powers to target things no one can normally target.
+	/// Initial use is the summonable base portals, which need to be able to kill nearby portals when summoned.
+	pub b_target_untargetable: bool,
 	/// Specifies that this power is only interrupted by attribmods that would also cancel sleep, rather than all foe attribmods.
 	pub b_interrupt_like_sleep: bool,
 	/// Specifies when and if the AI is told about attacks with this power.
@@ -1174,12 +845,15 @@ pub struct BasePower {
 	pub f_radius: f32,
 	/// Spherical radians of the cone, centered around a ray connecting the attacker to the target.
 	pub f_arc: f32,
+	pub f_unknown: f32,
 	/// For the chain effect area, add an optional delay between each jump.
 	pub f_chain_delay: f32,
-	/// If set, this expression is evaluated for each chain target beyond the first.
 	/// It should evaluate to a number, which is stored as @ChainEff and used as the AttribMod's Effectiveness. This
 	/// affects the total value that is applied by the power.
 	pub ppch_chain_eff: Vec<String>,
+	/// If set, this expression is evaluated for each chain target beyond the first.
+	/// Added i26p5.
+	pub ppch_chain_target_expr: Vec<String>,
 	/// Which jumps the chain should create a new fork after. The same jump may be listed more than once to have more than one extra fork.
 	pub pi_chain_fork: Vec<i32>,
 	/// Used to define a cuboid volume positioned relative to the target, aligned to the basic x/y/z axes.
@@ -1245,23 +919,25 @@ pub struct BasePower {
 	/// If true, can target, affect, and auto-hit things that are in a different vision phase.
 	pub b_targets_through_vision_phase: bool,
 	/// List of boost types allowed by the power
-	pub pe_boosts_allowed: Vec<SpecialAttrib>,
+	pub pe_boosts_allowed: Vec<BoostAttrib>,
 	/// List of power groups this power belongs to. Only one of the powers in a power group can be on at a time. Using another
 	/// power from the same group shuts off any other powers which are on.
-	pub pe_group_membership: Vec<SpecialAttrib>,
+	pub pe_group_membership: Vec<i32>,
 	/// If any modes are listed, the character must be in one of the modes to activate the power. If the character exits a mode which is
 	/// required by the power, it is shut off.
-	pub pe_modes_required: Vec<SpecialAttrib>,
+	pub pe_modes_required: Vec<ModeAttrib>,
 	/// If the character goes into any of the modes listed here, the power is shut off (if it's a toggle or auto) and the
 	/// character will be unable to execute it.
-	pub pe_modes_disallowed: Vec<SpecialAttrib>,
+	pub pe_modes_disallowed: Vec<ModeAttrib>,
 	/// List of AI groups this power belongs to. Determines how a particular power is to be used.
 	pub ppch_ai_groups: Vec<String>,
+	/// Unknown string array next to `pp_redirect`.
+	pub ppch_unknown: Vec<String>,
 	/// List of redirections for this power.
 	pub pp_redirect: Vec<PowerRedirect>,
 	/// Effects of this power.
-	/// Stored as `Rc` because I need to make references to these for effects pulled in by `pp_redirect`.
-	pub pp_effects: Vec<Rc<EffectGroup>>,
+	/// Stored as `ObjRef` because I need to make references to these for effects pulled in by `pp_redirect`.
+	pub pp_effects: Vec<ObjRef<EffectGroup>>,
 	/// Ignore all `AttribMod` strength modifiers when calculating the final strength for the power.
 	pub b_ignore_strength: bool,
 	/// If true, then the buff icon is shown for this power, otherwise it is not.
@@ -1319,7 +995,10 @@ pub struct BasePower {
 	pub e_proc_allowed: ProcAllowed,
 	/// A list of character attributes whose strength cannot be modified. This can be used to make a Range buff not affect a power, for
 	/// example.
-	pub p_strengths_disallowed: Vec<SpecialAttrib>,
+	pub p_strengths_disallowed: Vec<CharacterAttrib>,
+	/// Added i27: A list of character attributes whose strength cannot be modified externally. As above, but the power can still take enhancements
+	/// that boost this attribute
+	pub p_global_strengths_disallowed: Vec<CharacterAttrib>,
 	/// True if the power is an AoE but you only want procs to go off once (on the main target) instead of on all targets.
 	pub b_use_non_boost_templates_on_main_target: bool,
 	/// If true, only the main target is animated and has FX put on him. Otherwise, everyone in the effect area will have the
@@ -1367,18 +1046,27 @@ pub struct BasePower {
 	/// Cache of attributes that can be modified by this power.
 	pub pe_attrib_cache: Vec<SpecialAttrib>,
 	/// Describes the visual effects of this power.
+	#[serde(skip)]
 	pub p_fx: Option<PowerFX>,
 	/// Per-costume selectable overrides for `fx`.
 	pub pp_custom_fx: Vec<CustomPowerFX>,
+	/// Added i26p5. Expression that determines the number of max target hits.
+	pub ppch_max_targets_expr: Vec<String>,
 
 	// Non-data fields.
+	/// Source file for `p_fx`.
+	pub visual_fx: Option<String>,
 	/// Whether or not to include this power in the output files.
+	#[serde(skip)]
 	pub include_in_output: bool,
 	/// Archetypes associated with this power.
-	pub archetypes: Vec<Rc<Archetype>>,
+	#[serde(skip)]
+	pub archetypes: Vec<ObjRef<Archetype>>,
 	/// Have we resolved redirects on this power already?
+	#[serde(skip)]
 	pub redirects_resolved: bool,
 	/// Computed set of enhancement sets allowed.
+	#[serde(skip)]
 	pub enhancement_set_categories_allowed: HashSet<String>,
 }
 
@@ -1402,7 +1090,7 @@ impl Default for PrimarySecondary {
 	}
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct PowerCategory {
 	/// Filename this definition came from.
 	pub pch_source_file: Option<String>,
@@ -1417,17 +1105,22 @@ pub struct PowerCategory {
 	/// The names of power sets in this category.
 	pub ppch_power_set_names: Vec<NameKey>,
 	/// List of power sets which make up this category.
-	pub pp_power_sets: Vec<Rc<BasePowerSet>>,
+	#[serde(skip)]
+	pub pp_power_sets: Vec<ObjRef<BasePowerSet>>,
 	/// Archetypes associated with this category.
-	pub archetypes: Vec<Rc<Archetype>>,
+	#[serde(skip)]
+	pub archetypes: Vec<ObjRef<Archetype>>,
 	/// For power categories tied to a specific archetype, this indicates whether it
 	/// is a primary or secondary power pick.
+	#[serde(skip)]
 	pub pri_sec: PrimarySecondary,
 
 	// Non-data fields.
 	/// Whether or not to include this power category in the output files.
+	#[serde(skip)]
 	pub include_in_output: bool,
 	/// If true, this category should be listed in the root JSON.
+	#[serde(skip)]
 	pub top_level: bool,
 }
 
@@ -1437,11 +1130,15 @@ impl PowerCategory {
 	}
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribName {
 	pub pch_name: Option<String>,
 	pub pch_display_name: Option<String>,
 	pub pch_icon_name: Option<String>,
+
+	// Non-data fields
+	/// Records the offset in the name table for serialization.
+	pub offset: usize,
 }
 
 impl AttribName {
@@ -1450,7 +1147,7 @@ impl AttribName {
 	}
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribNames {
 	pub pp_defense: Vec<AttribName>,
 	pub pp_damage: Vec<AttribName>,
@@ -1459,7 +1156,9 @@ pub struct AttribNames {
 	pub pp_mode: Vec<AttribName>,
 	pub pp_elusivity: Vec<AttribName>,
 	pub pp_stack_key: Vec<AttribName>,
+
 	/// Not in the original struct but gives us a convenient place to hold onto them.
+	#[serde(skip)]
 	pub attr_names: HashMap<usize, Option<String>>,
 }
 
@@ -1473,9 +1172,9 @@ impl AttribNames {
 #[derive(Debug)]
 pub struct PowersDictionary {
 	/// Contains the full hierarchy of power categories -> power sets -> powers.
-	pub power_categories: Vec<Rc<PowerCategory>>,
+	pub power_categories: Vec<ObjRef<PowerCategory>>,
 	/// All of the archetype data.
 	pub archetypes: Keyed<Archetype>,
 	/// Character attribute names, mostly used for naming damage, defense, elusivity.
-	pub attrib_names: AttribNames,
+	pub attrib_names: Rc<AttribNames>,
 }

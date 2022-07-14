@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
-use super::{NameKey, VillainDef};
+use super::{NameKey, ObjRef, Vec3, VillainDef};
 use num_enum::TryFromPrimitive;
-use std::rc::Rc;
+use serde::Serialize;
 
 macro_rules! default_new {
     ($type:ty) => {
@@ -30,14 +30,14 @@ macro_rules! default_val {
 const ATTRIBMOD_DURATION_FOREVER: f32 = 99999.0;
 
 /// Which power system to use for advancement, level lookup, etc.
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum PowerSystem {
     kPowerSystem_Powers = 0,
 }
 default_val!(PowerSystem, kPowerSystem_Powers);
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum ShowPowerSetting {
     /// If on a powerset that the player owns, do not show this powerset or any powers in it (no matter what settings the powers have).
@@ -59,7 +59,7 @@ pub enum ShowPowerSetting {
 default_val!(ShowPowerSetting, kShowPowerSetting_Never);
 
 /// Defines if the power is auto, toggle, or click power.
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum PowerType {
     /// Click powers only activate when the user has activated them.
@@ -88,168 +88,8 @@ impl PowerType {
     }
 }
 
-// see ESpecialAttrib in Common/entity/character_attribs.h
-#[derive(Debug)]
-pub enum SpecialAttrib {
-    kSpecialAttrib_Character(i32),
-    kSpecialAttrib_Translucency,
-    kSpecialAttrib_EntCreate,
-    kSpecialAttrib_ClearDamagers,
-    kSpecialAttrib_SilentKill,
-    kSpecialAttrib_XPDebtProtection,
-    kSpecialAttrib_SetMode,
-    kSpecialAttrib_SetCostume,
-    kSpecialAttrib_Glide,
-    kSpecialAttrib_Null,
-    kSpecialAttrib_Avoid,
-    kSpecialAttrib_Reward,
-    kSpecialAttrib_XPDebt,
-    kSpecialAttrib_DropToggles,
-    kSpecialAttrib_GrantPower,
-    kSpecialAttrib_RevokePower,
-    kSpecialAttrib_UnsetMode,
-    kSpecialAttrib_GlobalChanceMod,
-    kSpecialAttrib_PowerChanceMod,
-    kSpecialAttrib_GrantBoostedPower,
-    kSpecialAttrib_ViewAttrib,
-    kSpecialAttrib_RewardSource,
-    kSpecialAttrib_RewardSourceTeam,
-    kSpecialAttrib_ClearFog,
-    kSpecialAttrib_CombatPhase,
-    kSpecialAttrib_CombatModShift,
-    kSpecialAttrib_RechargePower,
-    kSpecialAttrib_VisionPhase,
-    kSpecialAttrib_NinjaRun,
-    kSpecialAttrib_Walk,
-    kSpecialAttrib_BeastRun,
-    kSpecialAttrib_SteamJump,
-    kSpecialAttrib_DesignerStatus,
-    kSpecialAttrib_ExclusiveVisionPhase,
-    kSpecialAttrib_HoverBoard,
-    kSpecialAttrib_SetSZEValue,
-    kSpecialAttrib_AddBehavior,
-    kSpecialAttrib_MagicCarpet,
-    kSpecialAttrib_TokenAdd,
-    kSpecialAttrib_TokenSet,
-    kSpecialAttrib_TokenClear,
-    kSpecialAttrib_LuaExec,
-    kSpecialAttrib_ForceMove,
-    kSpecialAttrib_ParkourRun,
-    kSpecialAttrib_CancelMods,
-    kSpecialAttrib_ExecutePower,
-    kSpecialAttrib_PowerRedirect,
-    kSpecialAttrib_UNSET,
-}
-default_val!(SpecialAttrib, kSpecialAttrib_UNSET);
 
-impl SpecialAttrib {
-    pub fn from_i32(val: i32) -> Self {
-        match val {
-            460 => SpecialAttrib::kSpecialAttrib_Translucency, /* sizeof(CharacterAttributes) */
-            461 => SpecialAttrib::kSpecialAttrib_EntCreate,
-            462 => SpecialAttrib::kSpecialAttrib_ClearDamagers,
-            463 => SpecialAttrib::kSpecialAttrib_SilentKill,
-            464 => SpecialAttrib::kSpecialAttrib_XPDebtProtection,
-            465 => SpecialAttrib::kSpecialAttrib_SetMode,
-            466 => SpecialAttrib::kSpecialAttrib_SetCostume,
-            467 => SpecialAttrib::kSpecialAttrib_Glide,
-            468 => SpecialAttrib::kSpecialAttrib_Null,
-            469 => SpecialAttrib::kSpecialAttrib_Avoid,
-            470 => SpecialAttrib::kSpecialAttrib_Reward,
-            471 => SpecialAttrib::kSpecialAttrib_XPDebt,
-            472 => SpecialAttrib::kSpecialAttrib_DropToggles,
-            473 => SpecialAttrib::kSpecialAttrib_GrantPower,
-            474 => SpecialAttrib::kSpecialAttrib_RevokePower,
-            475 => SpecialAttrib::kSpecialAttrib_UnsetMode,
-            476 => SpecialAttrib::kSpecialAttrib_GlobalChanceMod,
-            477 => SpecialAttrib::kSpecialAttrib_PowerChanceMod,
-            478 => SpecialAttrib::kSpecialAttrib_GrantBoostedPower,
-            479 => SpecialAttrib::kSpecialAttrib_ViewAttrib,
-            480 => SpecialAttrib::kSpecialAttrib_RewardSource,
-            481 => SpecialAttrib::kSpecialAttrib_RewardSourceTeam,
-            482 => SpecialAttrib::kSpecialAttrib_ClearFog,
-            483 => SpecialAttrib::kSpecialAttrib_CombatPhase,
-            484 => SpecialAttrib::kSpecialAttrib_CombatModShift,
-            485 => SpecialAttrib::kSpecialAttrib_RechargePower,
-            486 => SpecialAttrib::kSpecialAttrib_VisionPhase,
-            487 => SpecialAttrib::kSpecialAttrib_NinjaRun,
-            488 => SpecialAttrib::kSpecialAttrib_Walk,
-            489 => SpecialAttrib::kSpecialAttrib_BeastRun,
-            490 => SpecialAttrib::kSpecialAttrib_SteamJump,
-            491 => SpecialAttrib::kSpecialAttrib_DesignerStatus,
-            492 => SpecialAttrib::kSpecialAttrib_ExclusiveVisionPhase,
-            493 => SpecialAttrib::kSpecialAttrib_HoverBoard,
-            494 => SpecialAttrib::kSpecialAttrib_SetSZEValue,
-            495 => SpecialAttrib::kSpecialAttrib_AddBehavior,
-            496 => SpecialAttrib::kSpecialAttrib_MagicCarpet,
-            497 => SpecialAttrib::kSpecialAttrib_TokenAdd,
-            498 => SpecialAttrib::kSpecialAttrib_TokenSet,
-            499 => SpecialAttrib::kSpecialAttrib_TokenClear,
-            500 => SpecialAttrib::kSpecialAttrib_LuaExec,
-            501 => SpecialAttrib::kSpecialAttrib_ForceMove,
-            502 => SpecialAttrib::kSpecialAttrib_ParkourRun,
-            503 => SpecialAttrib::kSpecialAttrib_CancelMods,
-            504 => SpecialAttrib::kSpecialAttrib_ExecutePower,
-            1460 => SpecialAttrib::kSpecialAttrib_PowerRedirect,
-            _ => SpecialAttrib::kSpecialAttrib_Character(val),
-        }
-    }
-
-    pub fn get_string(&self) -> &'static str {
-        match self {
-            SpecialAttrib::kSpecialAttrib_UNSET => "",
-            SpecialAttrib::kSpecialAttrib_Character(_) => "Character Attribute",
-            SpecialAttrib::kSpecialAttrib_Translucency => "Translucency",
-            SpecialAttrib::kSpecialAttrib_EntCreate => "Create Entity",
-            SpecialAttrib::kSpecialAttrib_ClearDamagers => "Clear Damagers",
-            SpecialAttrib::kSpecialAttrib_SilentKill => "Silent Kill",
-            SpecialAttrib::kSpecialAttrib_XPDebtProtection => "Debt Protection",
-            SpecialAttrib::kSpecialAttrib_SetMode => "Set Mode",
-            SpecialAttrib::kSpecialAttrib_SetCostume => "Set Costume",
-            SpecialAttrib::kSpecialAttrib_Glide => "Glide",
-            SpecialAttrib::kSpecialAttrib_Null => "Null",
-            SpecialAttrib::kSpecialAttrib_Avoid => "Avoid",
-            SpecialAttrib::kSpecialAttrib_Reward => "Reward",
-            SpecialAttrib::kSpecialAttrib_XPDebt => "Debt",
-            SpecialAttrib::kSpecialAttrib_DropToggles => "Drop Toggles",
-            SpecialAttrib::kSpecialAttrib_GrantPower => "Grant Power",
-            SpecialAttrib::kSpecialAttrib_RevokePower => "Revoke Power",
-            SpecialAttrib::kSpecialAttrib_UnsetMode => "Unset Mode",
-            SpecialAttrib::kSpecialAttrib_GlobalChanceMod => "Global Chance Mod",
-            SpecialAttrib::kSpecialAttrib_PowerChanceMod => "Power Chance Mod",
-            SpecialAttrib::kSpecialAttrib_GrantBoostedPower => "Grant Boosted Power",
-            SpecialAttrib::kSpecialAttrib_ViewAttrib => "View Attributes",
-            SpecialAttrib::kSpecialAttrib_RewardSource => "Reward Source",
-            SpecialAttrib::kSpecialAttrib_RewardSourceTeam => "Reward Source Team",
-            SpecialAttrib::kSpecialAttrib_ClearFog => "Clear Fog",
-            SpecialAttrib::kSpecialAttrib_CombatPhase => "Combat Phase",
-            SpecialAttrib::kSpecialAttrib_CombatModShift => "Level Shift",
-            SpecialAttrib::kSpecialAttrib_RechargePower => "Recharge Power",
-            SpecialAttrib::kSpecialAttrib_VisionPhase => "Vision Phase",
-            SpecialAttrib::kSpecialAttrib_NinjaRun => "Ninja Run",
-            SpecialAttrib::kSpecialAttrib_Walk => "Walk",
-            SpecialAttrib::kSpecialAttrib_BeastRun => "Beast Run",
-            SpecialAttrib::kSpecialAttrib_SteamJump => "Steam Jump",
-            SpecialAttrib::kSpecialAttrib_DesignerStatus => "Designer Status",
-            SpecialAttrib::kSpecialAttrib_ExclusiveVisionPhase => "Exclusive Vision Phase",
-            SpecialAttrib::kSpecialAttrib_HoverBoard => "Hover Board",
-            SpecialAttrib::kSpecialAttrib_SetSZEValue => "Set Script Value",
-            SpecialAttrib::kSpecialAttrib_AddBehavior => "Add Behavior",
-            SpecialAttrib::kSpecialAttrib_MagicCarpet => "Magic Carpet",
-            SpecialAttrib::kSpecialAttrib_TokenAdd => "Add Token",
-            SpecialAttrib::kSpecialAttrib_TokenSet => "Set Token",
-            SpecialAttrib::kSpecialAttrib_TokenClear => "Clear Token",
-            SpecialAttrib::kSpecialAttrib_LuaExec => "Execute Script",
-            SpecialAttrib::kSpecialAttrib_ForceMove => "Force Move",
-            SpecialAttrib::kSpecialAttrib_ParkourRun => "Parkour Run",
-            SpecialAttrib::kSpecialAttrib_CancelMods => "Cancel Effects",
-            SpecialAttrib::kSpecialAttrib_ExecutePower => "Execute Power",
-            SpecialAttrib::kSpecialAttrib_PowerRedirect => "Redirect Power",
-        }
-    }
-}
-
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum DeathCastableSetting {
     kDeathCastableSetting_AliveOnly = 0, // old false.
@@ -258,7 +98,7 @@ pub enum DeathCastableSetting {
 }
 default_val!(DeathCastableSetting, kDeathCastableSetting_AliveOnly);
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum AIReport {
     /// Report on hit or miss.
@@ -273,7 +113,7 @@ pub enum AIReport {
 default_val!(AIReport, kAIReport_Always);
 
 /// The area effected by the power.
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum EffectArea {
     /// Any targeted entity
@@ -322,7 +162,7 @@ impl EffectArea {
 
 /// Defines what kind of visibility is required between the caster and
 /// the target for successful execution of the power.
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum TargetVisibility {
     /// The caster must have direct line of sight to the target.
@@ -333,7 +173,7 @@ pub enum TargetVisibility {
 default_val!(TargetVisibility, kTargetVisibility_LineOfSight);
 
 /// The thing which can be targetted. Used to specify which kinds of entities are affected, auto-hit, etc. by a power.
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum TargetType {
     kTargetType_None,
@@ -468,7 +308,7 @@ impl TargetType {
     }
 }
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum ModApplicationType {
     /// While the power is running.
@@ -499,7 +339,7 @@ impl ModApplicationType {
     }
 }
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum ModTarget {
     kModTarget_Caster,
@@ -526,7 +366,7 @@ impl ModTarget {
     }
 }
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum ModType {
     kModType_Duration,
@@ -549,7 +389,7 @@ impl ModType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum ModDuration {
     InSeconds(f32),
     kModDuration_Instant,
@@ -600,7 +440,7 @@ impl Default for ModDuration {
     }
 }
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum CasterStackType {
     /// Stacking is handled for each caster individually.
@@ -611,7 +451,7 @@ pub enum CasterStackType {
 default_val!(CasterStackType, kCasterStackType_Individual);
 
 /// Determines how multiple identical `AttribMod`s from the same power and caster are handled.
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum StackType {
     /// Stack up (allow multiples).
@@ -634,6 +474,8 @@ pub enum StackType {
     kStackType_Maximize,
     /// Keep all, but suppress all but the greatest magnitude.
     kStackType_Suppress,
+    /// If an existing `AttribMod` is about to expire, behave as `kStackType_Replace`.
+    kStackType_Continuous,
 }
 default_val!(StackType, kStackType_Replace);
 
@@ -650,11 +492,12 @@ impl StackType {
             StackType::kStackType_RefreshToCount => "RefreshToLimit",
             StackType::kStackType_Maximize => "Maximize",
             StackType::kStackType_Suppress => "Suppress",
+            StackType::kStackType_Continuous => "Continuous",
         }
     }
 }
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum PowerEvent {
     // Invoke-related events.
@@ -699,20 +542,66 @@ pub enum PowerEvent {
 }
 default_val!(PowerEvent, kPowerEvent_Activate);
 
-#[derive(Debug, Default)]
+impl PowerEvent {
+    pub fn get_string(&self) -> &'static str {
+        match self {
+            // Invoke-related events.
+            PowerEvent::kPowerEvent_Activate => "Activate",
+            PowerEvent::kPowerEvent_ActivateAttackClick => "ActivateAttackClick",
+            PowerEvent::kPowerEvent_Attacked => "Attacked",
+            PowerEvent::kPowerEvent_AttackedNoException => "AttackedNoException",
+            PowerEvent::kPowerEvent_Helped => "Helped",
+            PowerEvent::kPowerEvent_Hit => "Hit",
+            PowerEvent::kPowerEvent_Miss => "Miss",
+            PowerEvent::kPowerEvent_EndActivate => "EndActivate",
+            // Apply-related events.
+            PowerEvent::kPowerEvent_AttackedByOther => "AttackedByOther",
+            PowerEvent::kPowerEvent_AttackedByOtherClick => "AttackedByOtherClick",
+            PowerEvent::kPowerEvent_HelpedByOther => "HelpedByOther",
+            PowerEvent::kPowerEvent_HitByOther => "HitByOther",
+            PowerEvent::kPowerEvent_HitByFriend => "HitByFriend",
+            PowerEvent::kPowerEvent_HitByFoe => "HitByFoe",
+            PowerEvent::kPowerEvent_MissByOther => "MissByOther",
+            PowerEvent::kPowerEvent_MissByFriend => "MissByFriend",
+            PowerEvent::kPowerEvent_MissByFoe => "MissByFoe",
+            // Damaged/healed events.
+            PowerEvent::kPowerEvent_Damaged => "Damaged",
+            PowerEvent::kPowerEvent_Healed => "Healed",
+            // Staus events.
+            PowerEvent::kPowerEvent_Stunned => "Stunned",
+            PowerEvent::kPowerEvent_Immobilized => "Immobilized",
+            PowerEvent::kPowerEvent_Held => "Held",
+            PowerEvent::kPowerEvent_Sleep => "Sleep",
+            PowerEvent::kPowerEvent_Terrorized => "Terrorized",
+            PowerEvent::kPowerEvent_Confused => "Confused",
+            PowerEvent::kPowerEvent_Untouchable => "Untouchable",
+            PowerEvent::kPowerEvent_Intangible => "Intangible",
+            PowerEvent::kPowerEvent_OnlyAffectsSelf => "OnlyAffectsSelf",
+            PowerEvent::kPowerEvent_AnyStatus => "AnyStatus",
+            // Misc.
+            PowerEvent::kPowerEvent_Knocked => "Knocked",
+            PowerEvent::kPowerEvent_Defeated => "Defeated",
+            PowerEvent::kPowerEvent_MissionObjectClick => "MissionObjectClick",
+            PowerEvent::kPowerEvent_Moved => "Moved",
+            PowerEvent::kPowerEvent_Defiant => "Defiant",
+        }
+    }
+}
+
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModParam_Costume {
     pub pch_costume_name: Option<String>,
     pub i_priority: i32,
 }
 default_new!(AttribModParam_Costume);
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModParam_Reward {
     pub ppch_rewards: Vec<String>,
 }
 default_new!(AttribModParam_Reward);
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModParam_EntCreate {
     pub pch_entity_def: Option<NameKey>,
     pub pch_class: Option<String>,
@@ -725,15 +614,18 @@ pub struct AttribModParam_EntCreate {
     pub ppch_powerset_names: Vec<NameKey>,
     pub ppch_power_names: Vec<NameKey>,
     /// reference to full Villain Def (not inline)
-    pub villain_def: Option<Rc<VillainDef>>,
+    #[serde(skip)]
+    pub villain_def: Option<ObjRef<VillainDef>>,
     /// reference to entity's powers (not inline)
+    #[serde(skip)]
     pub power_refs: Vec<NameKey>,
     /// have we resolved this already? (not inline)
+    #[serde(skip)]
     pub resolved: bool,
 }
 default_new!(AttribModParam_EntCreate);
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModParam_Power {
     pub i_count: i32,
     // flattened from PowerSpec
@@ -741,11 +633,12 @@ pub struct AttribModParam_Power {
     pub ppch_powerset_names: Vec<NameKey>,
     pub ppch_power_names: Vec<NameKey>,
     /// have we resolved this already? not inline
+    #[serde(skip)]
     pub resolved: bool,
 }
 default_new!(AttribModParam_Power);
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModParam_Phase {
     pub pi_combat_phases: Vec<i32>,
     pub pi_vision_phases: Vec<i32>,
@@ -753,32 +646,32 @@ pub struct AttribModParam_Phase {
 }
 default_new!(AttribModParam_Phase);
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModParam_Teleport {
     pub pch_destination: Option<String>,
 }
 default_new!(AttribModParam_Teleport);
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModParam_Behavior {
     pub ppch_behaviors: Vec<String>,
 }
 default_new!(AttribModParam_Behavior);
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModParam_SZEValue {
     pub ppch_script_id: Vec<String>,
     pub ppch_script_value: Vec<String>,
 }
 default_new!(AttribModParam_SZEValue);
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModParam_Token {
     pub ppch_tokens: Vec<String>,
 }
 default_new!(AttribModParam_Token);
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModParam_EffectFilter {
     pub ppch_tags: Vec<String>,
     // flattened from PowerSpec
@@ -788,7 +681,8 @@ pub struct AttribModParam_EffectFilter {
 }
 default_new!(AttribModParam_EffectFilter);
 
-#[derive(Debug, Default)]
+/// Added i26p5
+#[derive(Debug, Default, Serialize)]
 pub struct AttribModParam_Knock {
     pub Start: i32,
     pub End: i32,
@@ -803,7 +697,7 @@ pub struct AttribModParam_Knock {
 }
 default_new!(AttribModParam_Knock);
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum AttribModParam {
     Costume(AttribModParam_Costume),
     Reward(AttribModParam_Reward),
@@ -818,7 +712,7 @@ pub enum AttribModParam {
     Knock(AttribModParam_Knock),
 }
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum ToggleDroppable {
     kToggleDroppable_Sometimes,
@@ -829,7 +723,7 @@ pub enum ToggleDroppable {
 }
 default_val!(ToggleDroppable, kToggleDroppable_Sometimes);
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[repr(u32)]
 pub enum ProcAllowed {
     kProcAllowed_All,

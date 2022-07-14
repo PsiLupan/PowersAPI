@@ -58,13 +58,10 @@ pub fn describe_attrib_mod(
     if matches!(attrib_mod.attr_type, Some(AttribType::kAttribType_Special)) {
         return;
     }
-    if template.p_attrib.iter().any(|a| match a {
-        SpecialAttrib::kSpecialAttrib_Character(a) => match *a as usize {
-            CharacterAttributes::OFFSET_MOVEMENT_CONTROL
-            | CharacterAttributes::OFFSET_MOVEMENT_FRICTION
-            | CharacterAttributes::OFFSET_EVADE => true,
-            _ => false,
-        },
+    if template.p_attrib.iter().any(|a| match a.usize() {
+        CharacterAttributes::OFFSET_MOVEMENT_CONTROL
+        | CharacterAttributes::OFFSET_MOVEMENT_FRICTION
+        | CharacterAttributes::OFFSET_EVADE => true,
         _ => false,
     }) {
         return;
@@ -250,92 +247,90 @@ fn get_effect_types(
         };
     }
     for (idx, attrib) in template.p_attrib.iter().enumerate() {
-        if let SpecialAttrib::kSpecialAttrib_Character(a) = attrib {
-            let a = *a as usize;
-            // damage types
-            if matches!(
-                a,
-                CharacterAttributes::OFFSET_DMG_0..=CharacterAttributes::OFFSET_HIT_POINTS
-            ) {
-                match attrib_mod.attr_type {
-                    Some(AttribType::kAttribType_Str) if idx == 0 => effect!(g_str!(), &a),
-                    Some(AttribType::kAttribType_Cur) => effect!(g_cur!(), &a),
-                    Some(AttribType::kAttribType_Res) if idx == 0 => effect!(g_res!(), &a),
-                    Some(AttribType::kAttribType_Abs) if a == CharacterAttributes::OFFSET_DMG_7 => {
-                        effect_types.push(String::from("heal"));
-                    }
-                    _ => effect!(g_abs!(), &a),
+        let a = attrib.usize();
+        // damage types
+        if matches!(
+            a,
+            CharacterAttributes::OFFSET_DMG_0..=CharacterAttributes::OFFSET_HIT_POINTS
+        ) {
+            match attrib_mod.attr_type {
+                Some(AttribType::kAttribType_Str) if idx == 0 => effect!(g_str!(), &a),
+                Some(AttribType::kAttribType_Cur) => effect!(g_cur!(), &a),
+                Some(AttribType::kAttribType_Res) if idx == 0 => effect!(g_res!(), &a),
+                Some(AttribType::kAttribType_Abs) if a == CharacterAttributes::OFFSET_DMG_7 => {
+                    effect_types.push(String::from("heal"));
                 }
+                _ => effect!(g_abs!(), &a),
             }
-            // defense types
-            else if matches!(
-                a,
-                CharacterAttributes::OFFSET_DEF_0..=CharacterAttributes::OFFSET_DEFENSE |
-                CharacterAttributes::OFFSET_ELUSIVITY_0..=CharacterAttributes::OFFSET_ELUSIVITY_BASE
-            ) {
-                match attrib_mod.attr_type {
-                    Some(AttribType::kAttribType_Cur) | Some(AttribType::kAttribType_Str) => {
-                        if idx > 0 {
-                            effect!(g_abs!(), &a);
-                        } else {
-                            effect!(g_str!(), &a);
-                        }
+        }
+        // defense types
+        else if matches!(
+            a,
+            CharacterAttributes::OFFSET_DEF_0..=CharacterAttributes::OFFSET_DEFENSE |
+            CharacterAttributes::OFFSET_ELUSIVITY_0..=CharacterAttributes::OFFSET_ELUSIVITY_BASE
+        ) {
+            match attrib_mod.attr_type {
+                Some(AttribType::kAttribType_Cur) | Some(AttribType::kAttribType_Str) => {
+                    if idx > 0 {
+                        effect!(g_abs!(), &a);
+                    } else {
+                        effect!(g_str!(), &a);
                     }
-                    Some(AttribType::kAttribType_Res) => {
-                        if idx > 0 {
-                            effect!("{} debuff", &a);
-                        } else {
-                            effect!("resistance to {} debuff", &a);
-                        }
-                    }
-                    _ => (),
                 }
+                Some(AttribType::kAttribType_Res) => {
+                    if idx > 0 {
+                        effect!("{} debuff", &a);
+                    } else {
+                        effect!("resistance to {} debuff", &a);
+                    }
+                }
+                _ => (),
             }
-            // status effects
-            else if matches!(a, CharacterAttributes::OFFSET_CONFUSED..=CharacterAttributes::OFFSET_ONLY_AFFECTS_SELF |
+        }
+        // status effects
+        else if matches!(a, CharacterAttributes::OFFSET_CONFUSED..=CharacterAttributes::OFFSET_ONLY_AFFECTS_SELF |
                 CharacterAttributes::OFFSET_KNOCKUP..=CharacterAttributes::OFFSET_REPEL)
-            {
-                match attrib_mod.attr_type {
-                    Some(AttribType::kAttribType_Mod) | Some(AttribType::kAttribType_Cur) => {
-                        // HACK: the base attrib_mod doesn't have any info about the final magnitude, so we'll check the first scaled effect
-                        if let Some(scaled) = attrib_mod.scaled.get(0) {
-                            match scaled.scaled_effect {
-                                ScaledUnit::Magnitude(m) if m < 0.0 => {
-                                    effect!("{} protection", &a);
-                                }
-                                ScaledUnit::Magnitude(_) => {
-                                    effect!("magnitude {}", &a);
-                                }
-                                _ => {
-                                    effect!(g_abs!(), &a);
-                                }
+        {
+            match attrib_mod.attr_type {
+                Some(AttribType::kAttribType_Mod) | Some(AttribType::kAttribType_Cur) => {
+                    // HACK: the base attrib_mod doesn't have any info about the final magnitude, so we'll check the first scaled effect
+                    if let Some(scaled) = attrib_mod.scaled.get(0) {
+                        match scaled.scaled_effect {
+                            ScaledUnit::Magnitude(m) if m < 0.0 => {
+                                effect!("{} protection", &a);
                             }
-                        } else {
-                            effect!(g_abs!(), &a);
+                            ScaledUnit::Magnitude(_) => {
+                                effect!("magnitude {}", &a);
+                            }
+                            _ => {
+                                effect!(g_abs!(), &a);
+                            }
                         }
+                    } else {
+                        effect!(g_abs!(), &a);
                     }
-                    Some(AttribType::kAttribType_Str) if idx == 0 => effect!(g_str!(), &a),
-                    Some(AttribType::kAttribType_Res) if idx == 0 => effect!(g_res!(), &a),
-                    _ => effect!(g_abs!(), &a),
                 }
+                Some(AttribType::kAttribType_Str) if idx == 0 => effect!(g_str!(), &a),
+                Some(AttribType::kAttribType_Res) if idx == 0 => effect!(g_res!(), &a),
+                _ => effect!(g_abs!(), &a),
             }
-            // everything else
-            else {
-                match attrib_mod.attr_type {
-                    Some(AttribType::kAttribType_Cur) | Some(AttribType::kAttribType_Mod) => {
-                        effect!(g_cur!(), &a)
-                    }
-                    Some(AttribType::kAttribType_Res) => {
-                        if idx > 0 {
-                            effect!("{} debuff", &a);
-                        } else {
-                            effect!("resistance to {} debuff", &a);
-                        }
-                    }
-                    Some(AttribType::kAttribType_Max) if idx == 0 => effect!(g_max!(), &a),
-                    Some(AttribType::kAttribType_Str) if idx == 0 => effect!(g_str!(), &a),
-                    _ => effect!(g_abs!(), &a),
+        }
+        // everything else
+        else {
+            match attrib_mod.attr_type {
+                Some(AttribType::kAttribType_Cur) | Some(AttribType::kAttribType_Mod) => {
+                    effect!(g_cur!(), &a)
                 }
+                Some(AttribType::kAttribType_Res) => {
+                    if idx > 0 {
+                        effect!("{} debuff", &a);
+                    } else {
+                        effect!("resistance to {} debuff", &a);
+                    }
+                }
+                Some(AttribType::kAttribType_Max) if idx == 0 => effect!(g_max!(), &a),
+                Some(AttribType::kAttribType_Str) if idx == 0 => effect!(g_str!(), &a),
+                _ => effect!(g_abs!(), &a),
             }
         }
     }
@@ -648,22 +643,14 @@ pub fn describe_power(power: &mut PowerOutput, base_power: &BasePower, attrib_na
     if power.attack_types.len() > 0 {
         let mut attack_types = Vec::new();
         for special_attrib in &base_power.pe_attack_types {
-            match special_attrib {
-                SpecialAttrib::kSpecialAttrib_Character(a) => {
-                    match *a as usize {
-                        // ppDefense starts at offset OFFSET_DEF_0
-                        i
-                        @
-                        CharacterAttributes::OFFSET_DEF_0
-                            ..=CharacterAttributes::OFFSET_DEF_19 => {
-                            if let Some(name) = attrib_names
-                                .pp_defense
-                                .get((i - CharacterAttributes::OFFSET_DEF_0) / 4)
-                            {
-                                attack_types.push(&name.pch_display_name.as_ref().unwrap()[..]);
-                            }
-                        }
-                        _ => (),
+            match special_attrib.usize() {
+                // ppDefense starts at offset OFFSET_DEF_0
+                i @ CharacterAttributes::OFFSET_DEF_0..=CharacterAttributes::OFFSET_DEF_19 => {
+                    if let Some(name) = attrib_names
+                        .pp_defense
+                        .get((i - CharacterAttributes::OFFSET_DEF_0) / 4)
+                    {
+                        attack_types.push(&name.pch_display_name.as_ref().unwrap()[..]);
                     }
                 }
                 _ => (),

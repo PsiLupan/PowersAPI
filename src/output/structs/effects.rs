@@ -114,7 +114,7 @@ impl AttribModParamOutput {
                 if let Some(villain) = &e.villain_def {
                     let mut display_name = None;
                     let mut powers = Vec::new();
-                    if let Some(level_def) = villain.levels.get(config.at_level as usize) {
+                    if let Some(level_def) = villain.borrow().levels.get(config.at_level as usize) {
                         display_name = level_def.display_names.get(0).cloned();
                     }
                     for power in &e.power_refs {
@@ -179,6 +179,7 @@ impl AttribModParamOutput {
                 Some(AttribModParamOutput::ScriptValue { values })
             }
             AttribModParam::Knock(_) => {
+                // TODO: not sure this is super informative to output
                 None
             }
         }
@@ -244,6 +245,14 @@ impl StackingOutput {
 }
 
 #[derive(Default, Serialize)]
+pub struct SuppressEventOutput {
+    pub event: Option<&'static str>,
+    #[serde(skip_serializing_if = "not_normal")]
+    pub after_delay_seconds: f32,
+    pub always: bool,
+}
+
+#[derive(Default, Serialize)]
 pub struct AttribModOutput {
     pub attributes: Vec<Cow<'static, str>>,
     pub applies_to: Option<&'static str>,
@@ -274,7 +283,13 @@ pub struct AttribModOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stacking: Option<StackingOutput>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub suppress_events: Vec<SuppressEventOutput>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub cancel_events: Vec<&'static str>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub scaled: Vec<AttribModScaled>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     // unserialized fields
     #[serde(skip)]
     pub attr_type: Option<AttribType>,
@@ -284,7 +299,7 @@ impl AttribModOutput {
     fn from_attrib_mod_template(
         attrib_mod: &AttribModTemplate,
         attrib_names: &AttribNames,
-        archetypes: &Vec<Rc<Archetype>>,
+        archetypes: &Vec<ObjRef<Archetype>>,
         config: &PowersConfig,
     ) -> Self {
         let mut output = AttribModOutput {
@@ -296,12 +311,28 @@ impl AttribModOutput {
             flags: attrib_mod.i_flags.get_strings(),
             ..Default::default()
         };
+        // Additional flags
+        for special_flag in &attrib_mod.i_flags_special
+        {
+            output.flags.push(special_flag.get_string());
+        }
         // Stacking rules
         if !matches!(attrib_mod.e_stack, StackType::kStackType_Ignore) {
             output.stacking = Some(StackingOutput::from_attrib_mod_template(
                 attrib_mod,
                 attrib_names,
             ));
+        }
+        // Suppress and cancel events
+        for suppress in &attrib_mod.pp_suppress {
+            output.suppress_events.push(SuppressEventOutput {
+                event: Some(suppress.idx_event.get_string()),
+                after_delay_seconds: suppress.ul_seconds as f32,
+                always: suppress.b_always,
+            });
+        }
+        for cancel in &attrib_mod.pi_cancel_events {
+            output.cancel_events.push(cancel.get_string());
         }
         // Handle different expressions
         if attrib_mod.ppch_magnitude.len() > 0 {
@@ -338,40 +369,48 @@ impl AttribModOutput {
         }
         // attribs
         for attrib in &attrib_mod.p_attrib {
-            if let Some(attrib_name) = character_attrib_to_string(attrib, attrib_names) {
+            if let Some(attrib_name) = attrib.get_string(attrib_names) {
                 output.attributes.push(attrib_name);
             }
         }
-        if let Some(SpecialAttrib::kSpecialAttrib_Character(a)) = attrib_mod.p_attrib.get(0) {
-            output.attr_type = attrib_type(attrib_mod.off_aspect, *a);
-        } else {
-            output.attr_type = Some(AttribType::kAttribType_Special);
+        if let Some(a) = attrib_mod.p_attrib.get(0) {
+            if a.0 > SpecialAttrib::SIZE_OF_CHARACTER_ATTRIBUTES {
+                output.attr_type = Some(AttribType::kAttribType_Special);
+            } else {
+                output.attr_type = attrib_type(attrib_mod.off_aspect, a.0);
+            }
         }
         output.applies_to = Some(output.attr_type.as_ref().unwrap().get_string());
         // special cases for "booleans"
         if let Some(attrib) = attrib_mod.p_attrib.get(0) {
-            match attrib {
-                SpecialAttrib::kSpecialAttrib_Character(a) => {
-                    let a = *a as usize;
-                    // if a >= CharacterAttributes::OFFSET_CONFUSED
-                    //     && a <= CharacterAttributes::OFFSET_ONLY_AFFECTS_SELF
-                    // {
-                        // base magnitude is only relevant if this is a boolean attribute
-                        output.magnitude = Some(normalize(attrib_mod.f_magnitude));
-                    // }
-                    match attrib_mod.e_type {
-                        // if the mod is of type duration, it's scaled effect will be the duration
-                        ModType::kModType_Duration => {
-                            // duration is calculated
-                            output.duration = Some("InSecondsScaled");
-                            // probably got overwritten above
-                            output.application_type =
-                                Some(attrib_mod.e_application_type.get_string());
-                        }
-                        _ => (),
-                    }
+            if attrib.usize() >= CharacterAttributes::OFFSET_CONFUSED
+                && attrib.usize() <= CharacterAttributes::OFFSET_ONLY_AFFECTS_SELF
+            {
+                // base magnitude is only relevant if this is a boolean attribute
+                output.magnitude = Some(normalize(attrib_mod.f_magnitude));
+            }
+            match attrib_mod.e_type {
+                // if the mod is of type duration, it's scaled effect will be the duration
+                ModType::kModType_Duration => {
+                    // duration is calculated
+                    output.duration = Some("InSecondsScaled");
+                    // probably got overwritten above
+                    output.application_type = Some(attrib_mod.e_application_type.get_string());
                 }
                 _ => (),
+            }
+        }
+        // modes
+        for attr in &attrib_mod.p_attrib {
+            if let Some(attr) = attr.as_special_attrib() {
+                if matches!(
+                    attr,
+                    SpecialAttrib::kSpecialAttrib_SetMode | SpecialAttrib::kSpecialAttrib_UnsetMode
+                ) {
+                    let mode = ModeAttrib(attrib_mod.f_magnitude as i32);
+                    output.mode = mode.get_string(attrib_names);
+                    break;
+                }
             }
         }
         // params
@@ -379,14 +418,12 @@ impl AttribModOutput {
             output.parameter = AttribModParamOutput::from_attrib_mod_param(param, config);
         }
         // scaling per archetype
-        if !matches!(output.attr_type, Some(AttribType::kAttribType_Special)) {
-            output.add_effect_scales(attrib_mod, archetypes, config.at_level);
-            if let Some(scaled) = output.scaled.get(0) {
-                match scaled.scaled_effect {
-                    // Reduce confusion by blanking the base magnitude (would always be 1.0 in this case anyways)
-                    ScaledUnit::Magnitude(_) => output.magnitude = None,
-                    _ => (),
-                }
+        output.add_effect_scales(attrib_mod, archetypes, config.at_level);
+        if let Some(scaled) = output.scaled.get(0) {
+            match scaled.scaled_effect {
+                // Reduce confusion by blanking the base magnitude (would always be 1.0 in this case anyways)
+                ScaledUnit::Magnitude(_) => output.magnitude = None,
+                _ => (),
             }
         }
         output
@@ -396,11 +433,11 @@ impl AttribModOutput {
     fn add_effect_scales(
         &mut self,
         attrib_mod: &AttribModTemplate,
-        archetypes: &Vec<Rc<Archetype>>,
+        archetypes: &Vec<ObjRef<Archetype>>,
         at_level: i32,
     ) {
         if let Some(table_name) = &attrib_mod.pch_table {
-            for at in archetypes {
+            for at in archetypes.iter().map(|at| at.borrow()) {
                 // calculate scaled effect for each archetype attached to this power
                 if let Some(named_table) = at.pp_named_tables.get(&table_name.to_lowercase()) {
                     let base_value = named_table.pf_values[(at_level - 1) as usize];
@@ -439,6 +476,10 @@ pub struct EffectGroupOutput {
     pub procs_per_minute: f32,
     #[serde(skip_serializing_if = "not_normal")]
     pub after_delay_seconds: f32,
+    #[serde(skip_serializing_if = "not_normal")]
+    pub radius_inner: f32,
+    #[serde(skip_serializing_if = "not_normal")]
+    pub radius_outer: f32,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -453,7 +494,7 @@ impl EffectGroupOutput {
         effect: &EffectGroup,
         attrib_names: &AttribNames,
         base_power: &BasePower,
-        archetypes: &Vec<Rc<Archetype>>,
+        archetypes: &Vec<ObjRef<Archetype>>,
         config: &PowersConfig,
     ) -> Self {
         let mut group = EffectGroupOutput {
@@ -463,11 +504,20 @@ impl EffectGroupOutput {
             chance_percent: normalize(effect.f_chance * 100.0),
             procs_per_minute: normalize(effect.f_procs_per_minute),
             after_delay_seconds: normalize(effect.f_delay),
+            radius_inner: 0.0,
+            radius_outer: 0.0,
             requires: Vec::new(),
             flags: effect.i_flags.get_strings(),
             effects: Vec::new(),
             child_effect_groups: Vec::new(),
         };
+        if effect.f_radius_inner == 0.0 && effect.f_radius_outer == 0.0 {
+            // HACK: fake a MainTargetOnly flag (I accept this since the 0/0 radius is also a hack on the game's part)
+            group.flags.push("MainTargetOnly");
+        } else if effect.f_radius_inner > -1.0 && effect.f_radius_outer > -1.0 {
+            group.radius_inner = normalize(effect.f_radius_inner);
+            group.radius_outer = normalize(effect.f_radius_outer);
+        }
         if let Some(rule) = requires_to_string(&effect.ppch_requires) {
             group.requires.push(rule);
         }
@@ -574,23 +624,29 @@ fn calculate_damage(
 /// If `effect` has no requirements, all archetypes passed in will be returned.
 fn filter_archetypes_eg(
     effect: &EffectGroup,
-    archetypes: &Vec<Rc<Archetype>>,
-) -> Vec<Rc<Archetype>> {
+    archetypes: &Vec<ObjRef<Archetype>>,
+) -> Vec<ObjRef<Archetype>> {
     // filter out the MLCrit and BossCrit effects, they use arch to test for NPC archetypes
-    if !effect
-        .ppch_tags
-        .iter()
-        .any(|tag| matches!(&tag[..], "MLCrit" | "BossCrit"))
+    if !is_critical_by_tags(&effect.ppch_tags)
+    // pets sometimes check for the "owner" which can confuse this rule
+        && !archetypes.iter().any(|at| at.borrow().is_villain)
         && effect.ppch_requires.iter().any(|rule| rule == "arch")
     {
         // second form of this rule compares to the latter half of the class key
         archetypes
             .iter()
             .filter(|at| {
+                let at = at.borrow();
                 if let Some(class_key) = &at.class_key {
-                    effect.ppch_requires.iter().any(|rule| {
-                        rule.to_ascii_lowercase() == &class_key.get()[Archetype::CLASS_PREFIX_LEN..]
-                    })
+                    if let Some(class_name) = &at.pch_name {
+                        effect.ppch_requires.iter().any(|rule| {
+                            rule.to_ascii_lowercase()
+                                == &class_key.get()[Archetype::CLASS_PREFIX_LEN..]
+                                || rule.to_ascii_lowercase() == *class_name
+                        })
+                    } else {
+                        false
+                    }
                 } else {
                     false
                 }
@@ -619,10 +675,7 @@ fn get_pve_or_pvp(
 
     // check for the MLCrit and BossCrit effects, they use player to test for non-pvp in most cases
     // but may have an explicit expression
-    if tags
-        .iter()
-        .any(|tag| matches!(&tag[..], "MLCrit" | "BossCrit"))
-    {
+    if is_critical_by_tags(tags) {
         match requires_str[..] {
             ["enttype", "target>", "critter", "eq"] => return Some(PVE_TAG),
             ["enttype", "target>", "player", "eq"] => return Some(PVP_TAG),
@@ -672,11 +725,13 @@ fn check_special_requires(effect_group: &mut EffectGroupOutput, requires: &Vec<S
 
 /// Modifies `effect_group` based on the content of `tags`.
 fn check_tags_group(effect_group: &mut EffectGroupOutput, tags: &Vec<String>) {
-    let tags_str = tags.iter().map(|s| &**s).collect::<Vec<_>>();
-    for tag in tags_str {
+    if is_critical_by_tags(&tags) {
+        effect_group.tags.insert("Critical");
+    }
+    for tag in tags {
         // several tags modify the chance of an effect, these refer to "global chance mods"
         // that are handled in code
-        match tag {
+        match &tag[..] {
             "FieryEmbrace" => {
                 effect_group.tags.insert("FieryEmbrace");
                 effect_group.chance_percent = 100.0;
@@ -699,10 +754,7 @@ fn check_tags_group(effect_group: &mut EffectGroupOutput, tags: &Vec<String>) {
             _ => (),
         }
         // gather certain tags together and promote them to effect tags
-        match tag {
-            "MLCrit" | "BossCrit" | "PlayerCrit" => {
-                effect_group.tags.insert("Critical");
-            }
+        match &tag[..] {
             "Lethal"
             | "LethalKB10"
             | "LethalKB25"
@@ -721,6 +773,9 @@ fn check_tags_group(effect_group: &mut EffectGroupOutput, tags: &Vec<String>) {
             "ToxicDamage" | "HailofBulletsToxic" => {
                 effect_group.tags.insert("DualPistolsToxicMode");
             }
+            "SoundBoost" => {
+                effect_group.tags.insert("SoundBoost");
+            }
             _ => (),
         }
     }
@@ -728,13 +783,24 @@ fn check_tags_group(effect_group: &mut EffectGroupOutput, tags: &Vec<String>) {
 
 /// Modifies `effect` based on the content of `tags`.
 fn check_tags_effect(effect: &mut AttribModOutput, tags: &Vec<String>) {
-    let tags_str = tags.iter().map(|s| &**s).collect::<Vec<_>>();
-    for tag in tags_str {
-        match tag {
+    for tag in tags {
+        match &tag[..] {
             "FireDamageDoT" => effect.tick_chance_percent = Some(80.0),
             _ => (),
         }
     }
+}
+
+/// Searches `tags` for any of the known critical hit tags.
+fn is_critical_by_tags(tags: &Vec<String>) -> bool {
+    for tag in tags {
+        match &tag[..] {
+            "MLCrit" | "BossCrit" | "PlayerCrit" | "ECCritModPlayer" | "ECCritModSmall"
+            | "ECCritModLarge" => return true,
+            _ => (),
+        }
+    }
+    false
 }
 
 /// Converts the offset of the character attributes to a type
@@ -779,6 +845,20 @@ fn get_scaled_effect(
     attrib_type: &AttribType,
     scaled_value: f32,
 ) -> Option<ScaledUnit> {
+    // special attributes require special handling
+    if let Some(attrib) = attrib_mod.p_attrib.get(0) {
+        if let Some(special) = attrib.as_special_attrib() {
+            match special {
+                // global/power chance mods need cumulative chance value
+                SpecialAttrib::kSpecialAttrib_GlobalChanceMod
+                | SpecialAttrib::kSpecialAttrib_PowerChanceMod => {
+                    return Some(ScaledUnit::Percent(normalize(scaled_value * 100.0)));
+                }
+                // discard all other special attribs
+                _ => return None,
+            }
+        }
+    }
     // duration in seconds
     if matches!(attrib_mod.e_type, ModType::kModType_Duration) {
         return Some(ScaledUnit::DurationSeconds(normalize(scaled_value)));
@@ -792,63 +872,60 @@ fn get_scaled_effect(
     }
     // character attributes depend on what we're modifying
     if let Some(attrib) = attrib_mod.p_attrib.get(0) {
-        match attrib {
+        match attrib.usize() {
             // Unfortunately there's no standard way to determine these, check the
             // comments on `CharacterAttributes` for some hints.
-            SpecialAttrib::kSpecialAttrib_Character(a) => match *a as usize {
-                CharacterAttributes::OFFSET_DMG_0..=CharacterAttributes::OFFSET_DMG_19
-                | CharacterAttributes::OFFSET_HIT_POINTS
-                | CharacterAttributes::OFFSET_ABSORB => {
-                    if scaled_value < 0.0 {
-                        return Some(ScaledUnit::Damage(normalize(scaled_value.abs())));
-                    } else {
-                        return Some(ScaledUnit::Healing(normalize(scaled_value)));
-                    }
+            CharacterAttributes::OFFSET_DMG_0..=CharacterAttributes::OFFSET_DMG_19
+            | CharacterAttributes::OFFSET_HIT_POINTS
+            | CharacterAttributes::OFFSET_ABSORB => {
+                if scaled_value < 0.0 {
+                    return Some(ScaledUnit::Damage(normalize(scaled_value.abs())));
+                } else {
+                    return Some(ScaledUnit::Healing(normalize(scaled_value)));
                 }
-                // Percentage based attributes
-                CharacterAttributes::OFFSET_TOHIT
-                | CharacterAttributes::OFFSET_DEF_0..=CharacterAttributes::OFFSET_DEF_19
-                | CharacterAttributes::OFFSET_DEFENSE..=CharacterAttributes::OFFSET_STEALTH
-                | CharacterAttributes::OFFSET_REGENERATION
-                    ..=CharacterAttributes::OFFSET_INSIGHT_RECOVERY
-                | CharacterAttributes::OFFSET_TELEPORT
-                | CharacterAttributes::OFFSET_ACCURACY..=CharacterAttributes::OFFSET_RANGE
-                | CharacterAttributes::OFFSET_ELUSIVITY_0
-                    ..=CharacterAttributes::OFFSET_ELUSIVITY_BASE => {
-                    return Some(ScaledUnit::Percent(normalize(scaled_value * 100.0)));
-                }
-                CharacterAttributes::OFFSET_ENDURANCE
-                    if matches!(
-                        attrib_type,
-                        AttribType::kAttribType_Cur | AttribType::kAttribType_Mod
-                    ) =>
-                {
-                    return Some(ScaledUnit::Percent(normalize(scaled_value * 100.0)));
-                }
-                // Distance based attributes
-                CharacterAttributes::OFFSET_STEALTH_RADIUS_PVE
-                    ..=CharacterAttributes::OFFSET_PERCEPTION_RADIUS
-                    if matches!(attrib_type, AttribType::kAttribType_Cur) =>
-                {
-                    // if current value, they're actually % instead of dist
-                    return Some(ScaledUnit::Percent(normalize(scaled_value * 100.0)));
-                }
-                CharacterAttributes::OFFSET_STEALTH_RADIUS_PVE
-                    ..=CharacterAttributes::OFFSET_PERCEPTION_RADIUS => {
-                    return Some(ScaledUnit::Distance(normalize(scaled_value)));
-                }
-                // The following are "boolean".. which actually means that the magnitude
-                // of total effects are reduced by the total magnitude of protection, and then if the
-                // result is >0, the status is applied to the character.
-                CharacterAttributes::OFFSET_CONFUSED
-                    ..=CharacterAttributes::OFFSET_ONLY_AFFECTS_SELF
-                | CharacterAttributes::OFFSET_KNOCKUP..=CharacterAttributes::OFFSET_REPEL => {
-                    return Some(ScaledUnit::Magnitude(normalize(scaled_value)));
-                }
-                // Any other character attribute is a raw value to be applied.
-                _ => return Some(ScaledUnit::Value(normalize(scaled_value))),
-            },
-            _ => (),
+            }
+            // Percentage based attributes
+            CharacterAttributes::OFFSET_TOHIT
+            | CharacterAttributes::OFFSET_DEF_0..=CharacterAttributes::OFFSET_DEF_19
+            | CharacterAttributes::OFFSET_DEFENSE..=CharacterAttributes::OFFSET_STEALTH
+            | CharacterAttributes::OFFSET_REGENERATION
+                ..=CharacterAttributes::OFFSET_INSIGHT_RECOVERY
+            | CharacterAttributes::OFFSET_TELEPORT
+            | CharacterAttributes::OFFSET_ACCURACY..=CharacterAttributes::OFFSET_RANGE
+            | CharacterAttributes::OFFSET_ELUSIVITY_0
+                ..=CharacterAttributes::OFFSET_ELUSIVITY_BASE => {
+                return Some(ScaledUnit::Percent(normalize(scaled_value * 100.0)));
+            }
+            CharacterAttributes::OFFSET_ENDURANCE
+                if matches!(
+                    attrib_type,
+                    AttribType::kAttribType_Cur | AttribType::kAttribType_Mod
+                ) =>
+            {
+                return Some(ScaledUnit::Percent(normalize(scaled_value * 100.0)));
+            }
+            // Distance based attributes
+            CharacterAttributes::OFFSET_STEALTH_RADIUS_PVE
+                ..=CharacterAttributes::OFFSET_PERCEPTION_RADIUS
+                if matches!(attrib_type, AttribType::kAttribType_Cur) =>
+            {
+                // if current value, they're actually % instead of dist
+                return Some(ScaledUnit::Percent(normalize(scaled_value * 100.0)));
+            }
+            CharacterAttributes::OFFSET_STEALTH_RADIUS_PVE
+                ..=CharacterAttributes::OFFSET_PERCEPTION_RADIUS => {
+                return Some(ScaledUnit::Distance(normalize(scaled_value)));
+            }
+            // The following are "boolean".. which actually means that the magnitude
+            // of total effects are reduced by the total magnitude of protection, and then if the
+            // result is >0, the status is applied to the character.
+            CharacterAttributes::OFFSET_CONFUSED
+                ..=CharacterAttributes::OFFSET_ONLY_AFFECTS_SELF
+            | CharacterAttributes::OFFSET_KNOCKUP..=CharacterAttributes::OFFSET_REPEL => {
+                return Some(ScaledUnit::Magnitude(normalize(scaled_value)));
+            }
+            // Any other character attribute is a raw value to be applied.
+            _ => return Some(ScaledUnit::Value(normalize(scaled_value))),
         }
     }
     // anything else is a special case and doesn't use scaling (creating entities, granting powers, etc.)

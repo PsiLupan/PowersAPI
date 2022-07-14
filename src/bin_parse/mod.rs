@@ -283,9 +283,11 @@ where
     T: Default + TryFrom<u32>,
     R: Read,
 {
-    if let Ok(val) = T::try_from(bin_read::<u32, _>(reader)?) {
+    let ival = bin_read::<u32, _>(reader)?;
+    if let Ok(val) = T::try_from(ival) {
         Ok(val)
     } else {
+        eprintln!("Unknown enum {} value {}", std::any::type_name::<T>(), ival);
         Ok(T::default())
     }
 }

@@ -15,7 +15,7 @@ at_level = 50
 
 # Set the base URL for generated JSON assets. Leave blank if you want to use local file system.
 # If specified, make sure it ends with "/".
-base_json_url = "https://reborn-team.github.io/PowersAPI/hc_homecoming/"
+base_json_url = "http://localhost:8000/"
 
 # Where to find the extracted .bin files. Required.
 input_path = "./bin"
@@ -94,7 +94,7 @@ filter_powersets = [
 # Comment out this block entirely if you don't want to host icon assets.
 [assets]
 # Set the base URL for images. If specified, make sure it ends with "/".
-base_asset_url = "https://reborn-team.github.io/PowersAPI/assets/"
+base_asset_url = "http://localhost:8000/assets/"
 # Icons stored in the bins usually have .tga or .ico. Change this to the hosted image format.
 ext = ".png"
 # URL path for archetype icons.

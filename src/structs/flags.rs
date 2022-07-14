@@ -1,5 +1,8 @@
 #![allow(non_upper_case_globals)]
 
+use super::attribs::SpecialAttrib;
+use serde::{Serialize, Serializer};
+
 bitflags! {
     #[derive(Default)]
     pub struct EffectGroupFlag: u32 {
@@ -10,18 +13,30 @@ bitflags! {
         /// Fallback effect groups are normally ignored. If no non-fallback effect
         /// groups within the same collection are eligible to be applied
         const Fallback = 1 << 2;
-        /// If true, ensure that the Chance is always evaluated consistently for all LinkedChance effect groups from the same power activation.
-        /// DEPRECATED: Will be removed in a future version.
-        const LinkedChance = 1 << 3;
-    }
+        /// Effect only the main target. Added i26p6 (replaced the deprecated LinkedChance).
+        /// Might've actually been p5 but I missed it.
+        const MainTargetOnly = 1 << 3;
+        /// Effect only the secondary targets. Added i26p6 or p5.
+        const SecondaryTargetsOnly = 1 << 4;
+        /// Added i27
+        const HideFromInfo = 1 << 5;
+        /// Added i27
+        const HitRollSuccess = 1 << 6;
+        /// Added i27
+        const HitRollFail = 1 << 7;    }
 }
 
 /// Used below to map values of attrib mod flags back to their human-readable names.
+#[rustfmt::skip]
 const EFFECT_GROUP_FLAGS_TO_STRINGS: &'static [(EffectGroupFlag, &'static str)] = &[
     (EffectGroupFlag::PVEOnly, "PVEOnly"),
     (EffectGroupFlag::PVPOnly, "PVPOnly"),
     (EffectGroupFlag::Fallback, "Fallback"),
-    (EffectGroupFlag::LinkedChance, "LinkedChance"),
+    (EffectGroupFlag::MainTargetOnly, "MainTargetOnly"),
+    (EffectGroupFlag::SecondaryTargetsOnly, "SecondaryTargetsOnly"),
+    (EffectGroupFlag::HideFromInfo, "HideFromInfo"),
+    (EffectGroupFlag::HitRollSuccess, "HitRollSuccess"),
+    (EffectGroupFlag::HitRollFail, "HitRollFail"),
 ];
 
 impl EffectGroupFlag {
@@ -40,9 +55,18 @@ impl EffectGroupFlag {
     }
 }
 
+impl Serialize for EffectGroupFlag {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.collect_seq(self.get_strings())
+    }
+}
+
 bitflags! {
     #[derive(Default)]
-    pub struct AttribModFlag: u64 {
+    pub struct AttribModFlag: u32 {
         /// If set, hides floaters (damage and healing numbers, for example) over the affected's head.
         /// If specified, `pch_display_float` is always shown, even if this is set.
         const NoFloaters = 1;
@@ -95,51 +119,83 @@ bitflags! {
         const StackExactPower = 1 << 18;
         /// Designer laziness flag.
         const IgnoreSuppressErrors = 1 << 19;
-        /// Valid for: EntCreate
-        /// If true, if the pet times out or is otherise destroyed by the server (as opposed to being defeated) then the entity is
-        /// vanished as opposed to going through the usual DieNow code. (Only for powers which spawn entities.)
-        const VanishEntOnTimeout = 1 << 32;
-        /// Valid for: CombatModShift
-        /// Causes this mod shift not to be added to the total reported to the client.
-        const DoNotDisplayShift = 1 << 33;
-        /// Valid for: TokenAdd, TokenSet
-        /// Don't update the token timer.
-        const NoTokenTime = 1 << 34;
-        /// Valid for: RevokePower
-        /// Revokes all copies of the power, ignoring Count.
-        const RevokeAll = 1 << 35;
-        /// Valid for: EntCreate
-        /// If true, do not apply custom tinting to the spawned pet's costume.
-        const DoNotTintCostume = 1 << 36;
-        /// Valid for: ExecutePower, EntCreate
-        /// Copy enhancements to the resulting power(s) if they are accepted by its allowed types.
-        const CopyBoosts = 1 << 37;
-        /// Valid for: EntCreate
-        /// Copy strength buff mods from the creator of this entity.
-        const CopyCreatorMods = 1 << 38;
-        /// Valid for: EntCreate
-        /// Suppresses FX on mods copied from creator. Only has an effect if CopyCreatorMods is also set.
-        const NoCreatorModFX = 1 << 39;
-        /// Valid for: EntCreate
-        /// Ignores `pch_villain_def` and `pch_class`, creates a generic entity the same class as its creator.
-        /// Implies NoCreatorModFX.
-        const PseudoPet = 1 << 40;
-        /// Valid for: EntCreate
-        /// Forces the summoned entity to show up in a player's pet window.
-        const PetVisible = 1 << 41;
-        /// Valid for: EntCreate
-        /// Forces the summoned entity to be commandable like a mastermind pet.
-        const PetCommandable = 1 << 42;
     }
 }
 
+#[derive(Debug)]
+pub enum EffectSpecificAttribModFlag {
+    // BIT 0
+    /// Valid for: EntCreate
+    /// If true, if the pet times out or is otherise destroyed by the server (as opposed to being defeated) then the entity is
+    /// vanished as opposed to going through the usual DieNow code. (Only for powers which spawn entities.)
+    VanishEntOnTimeout,
+    // Valid for: CombatModShift
+    // Causes this mod shift not to be added to the total reported to the client.
+    DoNotDisplayShift,
+    /// Valid for: TokenAdd, TokenSet
+    /// Don't update the token timer.
+    NoTokenTime,
+    /// Valid for: RevokePower
+    /// Revokes all copies of the power, ignoring Count.
+    RevokeAll,
+    // Valid for: Knock
+    // Added i26p5. If the target is flying, knock effects normally ignore the special
+    // height calculation. This flag forces the use of the height parameters even for flying targets.
+    #[allow(dead_code)]
+    AlwaysUseHeight,
+    /// Valid for: RechargePower
+    /// Added i27. Instead of recharging the power to ready, sets the recharge timer to
+    /// a specific value. The magnitude of the attribmod is taken as a time in seconds.
+    SetTimer,
+
+    // BIT 1
+    /// Valid for: EntCreate
+    /// If true, do not apply custom tinting to the spawned pet's costume.
+    DoNotTintCostume,
+    // Valid for: ExecutePower
+    // Added i27. Performs an additional line-of-sight check between caster and target
+    // when the exectued power is activated.
+    CheckLoS,
+    /// Valid for: RechargePower
+    /// Added i27. With aspect kAbs, adds the raw value of magnitude to the power's recharge timer.
+    /// With aspect kCur, multiplies the power's current recharge timer by the magnitude.
+    AdjustTimer,
+
+    // BIT 2
+    /// Valid for: ExecutePower, EntCreate
+    /// Copy enhancements to the resulting power(s) if they are accepted by its allowed types.
+    CopyBoosts,
+    /// Valid for: RechargePower
+    /// Added i27. Places the power on cooldown, using the recharge time as defined by the power definition.
+    Cooldown,
+
+    // BIT 3+
+    /// Valid for: EntCreate
+    /// Copy strength buff mods from the creator of this entity.
+    CopyCreatorMods,
+    /// Valid for: EntCreate
+    /// Suppresses FX on mods copied from creator. Only has an effect if CopyCreatorMods is also set.
+    NoCreatorModFX,
+    /// Valid for: EntCreate
+    /// Ignores `pch_villain_def` and `pch_class`, creates a generic entity the same class as its creator.
+    /// Implies NoCreatorModFX.
+    PseudoPet,
+    /// Valid for: EntCreate
+    /// Forces the summoned entity to show up in a player's pet window.
+    PetVisible,
+    /// Valid for: EntCreate
+    /// Forces the summoned entity to be commandable like a mastermind pet.
+    PetCommandable,
+    // Valid for: EntCreate
+    // Added i26p5. Copies the costume of the creator, as if it were a doppelganger.
+    CopyCreatorCostume,
+}
+
 /// Used below to map values of attrib mod flags back to their human-readable names.
+#[rustfmt::skip]
 const ATTRIB_MOD_FLAGS_TO_STRINGS: &'static [(AttribModFlag, &'static str)] = &[
     (AttribModFlag::NoFloaters, "NoFloaters"),
-    (
-        AttribModFlag::BoostIgnoreDiminishing,
-        "BoostIgnoreDiminishing",
-    ),
+    (AttribModFlag::BoostIgnoreDiminishing, "BoostIgnoreDiminishing"),
     (AttribModFlag::CancelOnMiss, "CancelOnMiss"),
     (AttribModFlag::NearGround, "NearGround"),
     (AttribModFlag::IgnoreStrength, "IgnoreStrength"),
@@ -158,17 +214,6 @@ const ATTRIB_MOD_FLAGS_TO_STRINGS: &'static [(AttribModFlag, &'static str)] = &[
     (AttribModFlag::StackByAttribAndKey, "StackByAttribAndKey"),
     (AttribModFlag::StackExactPower, "StackExactPower"),
     (AttribModFlag::IgnoreSuppressErrors, "IgnoreSupressErrors"),
-    (AttribModFlag::VanishEntOnTimeout, "VanishEntOnTimeout"),
-    (AttribModFlag::DoNotDisplayShift, "DoNotDisplayShift"),
-    (AttribModFlag::NoTokenTime, "NoTokenTime"),
-    (AttribModFlag::RevokeAll, "RevokeAll"),
-    (AttribModFlag::DoNotTintCostume, "DoNotTintCostume"),
-    (AttribModFlag::CopyBoosts, "CopyBoosts"),
-    (AttribModFlag::CopyCreatorMods, "CopyCreatorMods"),
-    (AttribModFlag::NoCreatorModFX, "NoCreatorModFX"),
-    (AttribModFlag::PseudoPet, "PseudoPet"),
-    (AttribModFlag::PetVisible, "PetVisible"),
-    (AttribModFlag::PetCommandable, "PetCommandable"),
 ];
 
 impl AttribModFlag {
@@ -184,6 +229,160 @@ impl AttribModFlag {
             }
         }
         strings
+    }
+}
+
+impl Serialize for AttribModFlag {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.collect_seq(self.get_strings())
+    }
+}
+
+impl EffectSpecificAttribModFlag {
+    /// Converts an `EffectSpecificAttribModFlag` value to a human-readable string.
+    ///
+    /// # Returns
+    /// A string based on the current `EffectSpecificAttribModFlag`.
+    pub fn get_string(&self) -> &'static str {
+        match self {
+            EffectSpecificAttribModFlag::VanishEntOnTimeout => "VanishEntOnTimeout",
+            EffectSpecificAttribModFlag::DoNotDisplayShift => "DoNotDisplayShift",
+            EffectSpecificAttribModFlag::NoTokenTime => "NoTokenTime",
+            EffectSpecificAttribModFlag::RevokeAll => "RevokeAll",
+            EffectSpecificAttribModFlag::AlwaysUseHeight => "AlwaysUseHeight",
+            EffectSpecificAttribModFlag::SetTimer => "SetTimer",
+            EffectSpecificAttribModFlag::DoNotTintCostume => "DoNotTintCostume",
+            EffectSpecificAttribModFlag::CheckLoS => "CheckLineOfSight",
+            EffectSpecificAttribModFlag::AdjustTimer => "AdjustTimer",
+            EffectSpecificAttribModFlag::CopyBoosts => "CopyBoosts",
+            EffectSpecificAttribModFlag::Cooldown => "Cooldown",
+            EffectSpecificAttribModFlag::CopyCreatorMods => "CopyCreatorMods",
+            EffectSpecificAttribModFlag::NoCreatorModFX => "NoCreatorModFX",
+            EffectSpecificAttribModFlag::PseudoPet => "PseudoPet",
+            EffectSpecificAttribModFlag::PetVisible => "PetVisible",
+            EffectSpecificAttribModFlag::PetCommandable => "PetCommandable",
+            EffectSpecificAttribModFlag::CopyCreatorCostume => "CopyCreatorCostume",
+        }
+    }
+
+    /// Converts a `u32` value to an `EffectSpecificAttribModFlag`. Because the value depends on other characteristcs
+    /// of the power, a simple conversion is not possible like `AttribModFlag`.
+    ///
+    /// # Parameters
+    /// * `value` - The raw flags from the bin.
+    /// * `special` - The corresponding `SpecialAttrib` for the current attrib mod, if any.
+    ///
+    /// # Returns
+    /// A `Vec<EffectSpecificAttribModFlag>` containing zero or more values.
+    pub fn from_bits(value: u32, special: &SpecialAttrib) -> Vec<Self> {
+        let bad = |bit| {
+            debug_assert!(
+                false,
+                "Unknown EffectSpecificAttribModFlag bit {} for {:?}",
+                bit, special
+            );
+        };
+        let mut flags = Vec::new();
+        if value == 0 || matches!(special, SpecialAttrib::kSpecialAttrib_UNSET) {
+            return flags;
+        }
+        // bit 0
+        if value & 1 != 0 {
+            match special {
+                SpecialAttrib::kSpecialAttrib_EntCreate => {
+                    flags.push(EffectSpecificAttribModFlag::VanishEntOnTimeout)
+                }
+                SpecialAttrib::kSpecialAttrib_CombatModShift => {
+                    flags.push(EffectSpecificAttribModFlag::DoNotDisplayShift)
+                }
+                SpecialAttrib::kSpecialAttrib_TokenAdd | SpecialAttrib::kSpecialAttrib_TokenSet => {
+                    flags.push(EffectSpecificAttribModFlag::NoTokenTime)
+                }
+                SpecialAttrib::kSpecialAttrib_RevokePower => {
+                    flags.push(EffectSpecificAttribModFlag::RevokeAll)
+                }
+                //SpecialAttrib::kSpecialAttrib_Knock => flags.push(EffectSpecificAttribModFlag::AlwaysUseHeight),
+                SpecialAttrib::kSpecialAttrib_RechargePower => {
+                    flags.push(EffectSpecificAttribModFlag::SetTimer)
+                }
+                SpecialAttrib::kSpecialAttrib_SetMode => (), // ???
+                _ => bad(0),
+            }
+        }
+        // bit 1
+        if value & (1 << 1) != 0 {
+            match special {
+                SpecialAttrib::kSpecialAttrib_EntCreate => {
+                    flags.push(EffectSpecificAttribModFlag::DoNotTintCostume)
+                }
+                SpecialAttrib::kSpecialAttrib_ExecutePower => {
+                    flags.push(EffectSpecificAttribModFlag::CheckLoS)
+                }
+                SpecialAttrib::kSpecialAttrib_RechargePower => {
+                    flags.push(EffectSpecificAttribModFlag::AdjustTimer)
+                }
+                _ => bad(1),
+            }
+        }
+        // bit 2
+        if value & (1 << 2) != 0 {
+            match special {
+                SpecialAttrib::kSpecialAttrib_EntCreate
+                | SpecialAttrib::kSpecialAttrib_ExecutePower => {
+                    flags.push(EffectSpecificAttribModFlag::CopyBoosts)
+                }
+                SpecialAttrib::kSpecialAttrib_RechargePower => {
+                    flags.push(EffectSpecificAttribModFlag::Cooldown)
+                }
+                _ => bad(2),
+            }
+        }
+        // the rest of the bits are only valid for EntCreate, so the test is inverted
+        if matches!(special, SpecialAttrib::kSpecialAttrib_EntCreate) {
+            // bit 3
+            if value & (1 << 3) != 0 {
+                flags.push(EffectSpecificAttribModFlag::CopyCreatorMods);
+            }
+            // bit 4
+            if value & (1 << 4) != 0 {
+                flags.push(EffectSpecificAttribModFlag::NoCreatorModFX);
+            }
+            // bit 5
+            if value & (1 << 5) != 0 {
+                flags.push(EffectSpecificAttribModFlag::PseudoPet);
+            }
+            // bit 6
+            if value & (1 << 6) != 0 {
+                flags.push(EffectSpecificAttribModFlag::PetVisible);
+            }
+            // bit 7
+            if value & (1 << 7) != 0 {
+                flags.push(EffectSpecificAttribModFlag::PetCommandable);
+            }
+            // bit 8
+            if value & (1 << 8) != 0 {
+                flags.push(EffectSpecificAttribModFlag::CopyCreatorCostume);
+            }
+        } else if value > 0b111 {
+            debug_assert!(
+                false,
+                "Unknown EffectSpecificAttribModFlag bit > 2 ({:b}) for {:?}",
+                value, special
+            );
+        }
+        flags
+    }
+}
+
+impl Serialize for EffectSpecificAttribModFlag {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.get_string())
     }
 }
 

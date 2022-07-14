@@ -48,7 +48,8 @@ impl NameKey {
     /// on seperating it using the default character (`.`).
     pub fn split(&self) -> Vec<&str>
     {
-        self.0.split(SEPARATOR).collect()
+        // altered to remove blank entries as I found some that have a trailing dot
+        self.0.split(SEPARATOR).filter(|s| *s != "").collect()
     }
 }
 

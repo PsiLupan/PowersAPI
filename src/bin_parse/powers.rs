@@ -1,6 +1,6 @@
 use super::*;
 use crate::structs::*;
-use std::convert::TryFrom;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 const MAX_ATTRIBMOD_FX: usize = 4;
@@ -34,8 +34,8 @@ where
     let mut powers = Keyed::<_>::new();
     for _ in 0..pbp_size {
         let power = read_base_power(reader, strings, messages)?;
-        if let Some(power_name) = &power.pch_full_name {
-            powers.insert(power_name.clone(), Rc::new(power));
+        if let Some(power_name) = power.pch_full_name.clone() {
+            powers.insert(power_name, power);
         }
     }
     verify_struct_length(powers, expected_bytes, begin_pos, reader)
@@ -91,6 +91,16 @@ where
         };
     }
 
+    macro_rules! pwr_char_attrib_arr {
+        ($field:ident) => {
+            bin_read_arr_fn(
+                &mut power.$field,
+                |re| Ok(CharacterAttrib(bin_read(re)?)),
+                reader,
+            )?;
+        };
+    }
+
     // TOK_STRUCT data length
     let (expected_bytes, begin_pos) = read_struct_length(reader)?;
 
@@ -121,7 +131,11 @@ where
     // fx name TOK_IGNORE
     pwr_enum!(e_type);
     pwr!(i_num_allowed);
-    pwr_attrib_arr!(pe_attack_types);
+    bin_read_arr_fn(
+        &mut power.pe_attack_types,
+        |re| Ok(CharacterAttrib(bin_read(re)?)),
+        reader,
+    )?;
     pwr_string_arr!(
         ppch_buy_requires,
         ppch_activate_requires,
@@ -186,10 +200,22 @@ where
     pwr_enum!(e_target_visibility, e_target_type, e_target_type_secondary);
     pwr_enum_arr!(p_auto_hit, p_affected);
     pwr!(b_targets_through_vision_phase);
-    pwr_attrib_arr!(pe_boosts_allowed);
-    pwr_attrib_arr!(pe_group_membership);
-    pwr_attrib_arr!(pe_modes_required);
-    pwr_attrib_arr!(pe_modes_disallowed);
+    bin_read_arr_fn(
+        &mut power.pe_boosts_allowed,
+        |re| Ok(BoostAttrib(bin_read(re)?)),
+        reader,
+    )?;
+    bin_read_arr(&mut power.pe_group_membership, reader)?;
+    bin_read_arr_fn(
+        &mut power.pe_modes_required,
+        |re| Ok(ModeAttrib(bin_read(re)?)),
+        reader,
+    )?;
+    bin_read_arr_fn(
+        &mut power.pe_modes_disallowed,
+        |re| Ok(ModeAttrib(bin_read(re)?)),
+        reader,
+    )?;
     pwr_string_arr!(ppch_ai_groups);
 
     bin_read_arr_fn(
@@ -199,7 +225,7 @@ where
     )?;
     bin_read_arr_fn(
         &mut power.pp_effects,
-        |re| Ok(Rc::new(read_effect_group(re, strings, messages)?)),
+        |re| Ok(Rc::new(RefCell::new(read_effect_group(re, strings, messages)?))),
         reader,
     )?;
 
@@ -244,7 +270,9 @@ where
     // toggles droppable TOK_REDUNDANTNAME
     pwr_enum!(e_proc_allowed);
 
-    pwr_attrib_arr!(p_strengths_disallowed);
+    // A list of character attributes whose strength cannot be modified.
+    //   This can be used to make a Range buff not affect a power, for
+    pwr_char_attrib_arr!(p_strengths_disallowed);
     pwr!(b_use_non_boost_templates_on_main_target, b_main_target_only);
 
     pwr_string_arr!(ppch_highlight_eval);
@@ -279,8 +307,13 @@ where
     );
 
     pwr_attrib_arr!(pe_attrib_cache);
-    let fx_source_file = read_pool_string(reader, strings, messages)?;
-    power.p_fx = Some(read_power_fx(fx_source_file, reader, strings, messages)?);
+    power.visual_fx = read_pool_string(reader, strings, messages)?;
+    power.p_fx = Some(read_power_fx(
+        power.visual_fx.clone(),
+        reader,
+        strings,
+        messages,
+    )?);
 
     bin_read_arr_fn(
         &mut power.pp_custom_fx,
@@ -334,7 +367,9 @@ where
     egroup.f_radius_inner = bin_read(reader)?;
     egroup.f_radius_outer = bin_read(reader)?;
     read_pool_string_arr(&mut egroup.ppch_requires, reader, strings, messages)?;
-    egroup.i_flags = EffectGroupFlag::from_bits_truncate(bin_read(reader)?);
+    let egf: u32 = bin_read(reader)?;
+    egroup.i_flags = EffectGroupFlag::from_bits(egf)
+        .unwrap_or_else(|| panic!("Unknown effect group flags: {:#b}", egf));
     egroup.i_eval_flags = bin_read(reader)?;
     bin_read_arr_fn(
         &mut egroup.pp_templates,
@@ -375,7 +410,7 @@ where
     let (expected_bytes, begin_pos) = read_struct_length(reader)?;
     bin_read_arr_fn(
         &mut template.p_attrib,
-        |re| Ok(SpecialAttrib::from_i32(bin_read(re)?)),
+        |re| Ok(CharacterAttrib(bin_read(re)?)),
         reader,
     )?;
     template.off_aspect = bin_read(reader)?; // TODO: AspectEnum
@@ -402,13 +437,7 @@ where
     template.i_stack_key = bin_read(reader)?; // TODO: ParsePowerDefines
     let size = bin_read(reader)?;
     for _ in 0..size {
-        template.pi_cancel_events.push(
-            if let Ok(val) = PowerEvent::try_from(bin_read::<u32, _>(reader)?) {
-                val
-            } else {
-                PowerEvent::default()
-            },
-        );
+        template.pi_cancel_events.push(bin_read_enum(reader)?);
     }
     bin_read_arr_fn(
         &mut template.pp_suppress,
@@ -417,13 +446,17 @@ where
     )?;
     template.boost_mod_allowed = SpecialAttrib::from_i32(bin_read(reader)?);
 
-    // i_flags are stored in two separate 32-bit ints, I combine them into a single 64-bit flag
     let mut i_flags = [0u32; ATTRIBMOD_FLAGS_SIZE];
     for idx in 0..ATTRIBMOD_FLAGS_SIZE {
         i_flags[idx] = bin_read(reader)?;
     }
-    let u_flags = i_flags[0] as u64 | ((i_flags[1] as u64) << 32);
-    template.i_flags = AttribModFlag::from_bits_truncate(u_flags);
+    template.i_flags = AttribModFlag::from_bits(i_flags[0])
+        .unwrap_or_else(|| panic!("Unknown AttribModFlags: {:#b}", i_flags[0]));
+    if let Some(attr) = template.p_attrib.get(0) {
+        if let Some(attr) = attr.as_special_attrib() {
+            template.i_flags_special = EffectSpecificAttribModFlag::from_bits(i_flags[1], &attr);
+        }
+    }
 
     // TOK_OPTIONALSTRUCT
     if bin_read::<u32, _>(reader)? > 0 {
@@ -451,7 +484,7 @@ where
     let mut pair = SuppressPair::new();
 
     let (expected_bytes, begin_pos) = read_struct_length(reader)?;
-    pair.idx_event = bin_read(reader)?;
+    pair.idx_event = bin_read_enum(reader)?;
     pair.ul_seconds = bin_read(reader)?;
     pair.b_always = bin_read(reader)?;
 
@@ -787,10 +820,15 @@ where
 
     cfx.pch_token = read_pool_string(reader, strings, messages)?;
     read_pool_string_arr(&mut cfx.ppch_alt_themes, reader, strings, messages)?;
-    let source_file = read_pool_string(reader, strings, messages)?;
+    cfx.visual_fx = read_pool_string(reader, strings, messages)?;
     cfx.pch_category = read_pool_string(reader, strings, messages)?;
     cfx.pch_display_name = read_pool_string(reader, strings, messages)?;
-    cfx.p_fx = Some(read_power_fx(source_file, reader, strings, messages)?);
+    cfx.p_fx = Some(read_power_fx(
+        cfx.visual_fx.clone(),
+        reader,
+        strings,
+        messages,
+    )?);
     cfx.pch_palette_name = read_pool_string(reader, strings, messages)?;
     verify_struct_length(cfx, expected_bytes, begin_pos, reader)
 }
