@@ -764,7 +764,6 @@ where
     fx_string!(pch_ignore_attack_time_errors);
     fx!(i_frames_before_block);
     fx!(
-        // added i26p5
         b_fx_important,
         rgba_default_tint_primary,
         rgba_default_tint_secondary
