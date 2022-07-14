@@ -552,8 +552,6 @@ where
                 read_name_key_arr(&mut entcreate.ppch_category_names, reader, strings)?;
                 read_name_key_arr(&mut entcreate.ppch_powerset_names, reader, strings)?;
                 read_name_key_arr(&mut entcreate.ppch_power_names, reader, strings)?;
-                // i26p5: this appears to be an array that wasn't being used before
-                read_name_key_arr(&mut entcreate.redirects, reader, strings)?;
                 // pp powers TOK_NO_BIN
                 // p villain TOK_NO_BIN
                 // p class TOK_NO_BIN

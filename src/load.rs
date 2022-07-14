@@ -199,19 +199,7 @@ fn resolve_entity_defs_and_power_grants(
                         for param in &mut attrib_mod.p_params {
                             match param {
                                 AttribModParam::EntCreate(e) if !e.resolved => {
-                                    if e.redirects.len() > 0 {
-                                        // i26p6: Started seeing this in the beta files... instead
-                                        // of creating an entity, it redirects to one or more powers?
-                                        for redirect_def_name in &e.redirects {
-                                            mark_power_for_inclusion(
-                                                redirect_def_name,
-                                                &power.archetypes,
-                                                power_cats,
-                                                power_sets,
-                                                *p_powers.get(),
-                                            );
-                                        }
-                                    } else if let Some(entity_def_name) = &e.pch_entity_def {
+                                    if let Some(entity_def_name) = &e.pch_entity_def {
                                         if let Some(entity_def) = villains.get(entity_def_name) {
                                             // copy entity def data into the mod param
                                             e.villain_def = Some(Rc::clone(entity_def));

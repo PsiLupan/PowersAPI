@@ -73,8 +73,6 @@ pub enum AttribModParamOutput {
         powers: Vec<AttribModParamPowerRefAndUrl>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         power_names: Vec<NameKey>,
-        #[serde(skip_serializing_if = "Vec::is_empty")]
-        redirects: Vec<AttribModParamPowerRefAndUrl>,
     },
     Phase {
         exclusive_vision_phase: i32,
@@ -131,23 +129,6 @@ impl AttribModParamOutput {
                         display_name,
                         powers,
                         power_names: Vec::new(),
-                        redirects: Vec::new(),
-                    })
-                } else if e.redirects.len() > 0 {
-                    let mut powers = Vec::new();
-                    for power in &e.redirects {
-                        powers.push(AttribModParamPowerRefAndUrl {
-                            name: Some(power.clone()),
-                            display_name: None, // TODO
-                            url: make_power_ref_url(Some(power), config),
-                        });
-                    }
-                    Some(AttribModParamOutput::CreateEntity {
-                        name: None,
-                        display_name: None,
-                        powers: Vec::new(),
-                        power_names: Vec::new(),
-                        redirects: powers,
                     })
                 } else {
                     Some(AttribModParamOutput::CreateEntity {
@@ -155,7 +136,6 @@ impl AttribModParamOutput {
                         display_name: e.pch_display_name.clone(),
                         powers: Vec::new(),
                         power_names: e.ppch_power_names.clone(),
-                        redirects: Vec::new(),
                     })
                 }
             }

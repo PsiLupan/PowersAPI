@@ -724,8 +724,6 @@ pub struct AttribModParam_EntCreate {
     pub ppch_category_names: Vec<NameKey>,
     pub ppch_powerset_names: Vec<NameKey>,
     pub ppch_power_names: Vec<NameKey>,
-    /// added i26p5
-    pub redirects: Vec<NameKey>,
     /// reference to full Villain Def (not inline)
     pub villain_def: Option<Rc<VillainDef>>,
     /// reference to entity's powers (not inline)
