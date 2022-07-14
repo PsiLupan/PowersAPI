@@ -1025,8 +1025,6 @@ pub struct PowerFX {
 	pub rgba_default_tint_primary: RGBA,
 	/// The tint to use for non-customized powers. This lets artists reuse tintable assets.
 	pub rgba_default_tint_secondary: RGBA,
-	/// Added i26p5. HideOriginal (maybe?)
-	pub b_hide_original: bool,
 }
 
 impl PowerFX {

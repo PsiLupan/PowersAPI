@@ -767,9 +767,7 @@ where
         // added i26p5
         b_fx_important,
         rgba_default_tint_primary,
-        rgba_default_tint_secondary,
-        // added i26p5
-        b_hide_original
+        rgba_default_tint_secondary
     );
 
     Ok(fx)
