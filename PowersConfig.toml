@@ -52,8 +52,6 @@ power_categories = [
     "Prestige",
     "Scrapper_Defense",
     "Scrapper_Melee",
-    "Sentinel_Defense",
-    "Sentinel_Ranged",
     "Stalker_Defense",
     "Stalker_Melee",
     "Tanker_Defense",
