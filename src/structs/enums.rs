@@ -790,21 +790,20 @@ pub struct AttribModParam_EffectFilter {
 }
 default_new!(AttribModParam_EffectFilter);
 
-/// Added i26p5. Chain related?
 #[derive(Debug, Default)]
-pub struct AttribModParam_Param11 {
-    pub i_unknown_1: i32,
-    pub i_unknown_2: i32,
-    pub i_unknown_3: i32,
-    pub f_unknown_4: f32,
-    pub i_unknown_5: i32,
-    pub i_unknown_6: i32,
-    pub f_unknown_7: f32,
-    pub f_unknown_8: f32,
-    pub f_unknown_9: f32,
-    pub f_unknown_10: f32,
+pub struct AttribModParam_Knock {
+    pub Start: i32,
+    pub End: i32,
+    pub iPriority: i32,
+    pub fVelocity: f32,
+    pub fVelocityMagnitude: f32,
+    pub fHeight: i32,
+    pub fHeightMagnitude: f32,
+    pub fPitch: f32,
+    pub fYaw: f32,
+    pub fRotation: f32,
 }
-default_new!(AttribModParam_Param11);
+default_new!(AttribModParam_Knock);
 
 #[derive(Debug)]
 pub enum AttribModParam {
@@ -818,7 +817,7 @@ pub enum AttribModParam {
     SZEValue(AttribModParam_SZEValue),
     Token(AttribModParam_Token),
     EffectFilter(AttribModParam_EffectFilter),
-    Param11(AttribModParam_Param11),
+    Knock(AttribModParam_Knock),
 }
 
 #[derive(Debug, TryFromPrimitive)]

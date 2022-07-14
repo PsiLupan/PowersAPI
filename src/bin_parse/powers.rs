@@ -149,16 +149,10 @@ where
     pwr_enum!(e_ai_report);
     pwr_enum!(e_effect_area);
     pwr!(i_max_targets_hit);
-
-    // added i26p4
-    pwr_string_arr!(ppch_max_targets_expr);
-
+	
     pwr!(f_radius, f_arc, f_chain_delay);
     pwr_string_arr!(ppch_chain_eff);
     bin_read_arr(&mut power.pi_chain_fork, reader)?;
-
-    // added i26p5
-    bin_read_arr(&mut power.pi_unknown, reader)?;
 
     pwr!(vec_box_offset, vec_box_size);
     pwr!(
@@ -240,21 +234,18 @@ where
         i_max_boost_level
     );
 
-    // next 3 added i26p5
-    let _: f32 = bin_read(reader)?; // default 1.0?
-    let _: f32 = bin_read(reader)?; // default 999999.0?
-    let _: f32 = bin_read(reader)?; // default 1.0?
-
-    // changed i26p5: pp_vars appears to be an array of character attributes now
-    pwr_attrib_arr!(pp_vars);
+    bin_read_arr_fn(
+        &mut power.pp_vars,
+        |re| read_power_var(re, strings, messages),
+        reader,
+    )?;
 
     pwr_enum!(e_toggle_droppable);
     // toggles droppable TOK_REDUNDANTNAME
     pwr_enum!(e_proc_allowed);
 
-    // changed i26p5: removed these?
-    //pwr_attrib_arr!(p_strengths_disallowed);
-    //pwr!(b_use_non_boost_templates_on_main_target, b_main_target_only);
+    pwr_attrib_arr!(p_strengths_disallowed);
+    pwr!(b_use_non_boost_templates_on_main_target, b_main_target_only);
 
     pwr_string_arr!(ppch_highlight_eval);
     pwr_string!(pch_highlight_icon);
@@ -622,19 +613,19 @@ where
                 Some(AttribModParam::EffectFilter(filter))
             }
             11 => {
-                // Added i26p5. Unknown.
-                let mut param11 = AttribModParam_Param11::new();
-                param11.i_unknown_1 = bin_read(reader)?;
-                param11.i_unknown_2 = bin_read(reader)?;
-                param11.i_unknown_3 = bin_read(reader)?;
-                param11.f_unknown_4 = bin_read(reader)?;
-                param11.i_unknown_5 = bin_read(reader)?;
-                param11.i_unknown_6 = bin_read(reader)?;
-                param11.f_unknown_7 = bin_read(reader)?;
-                param11.f_unknown_8 = bin_read(reader)?;
-                param11.f_unknown_9 = bin_read(reader)?;
-                param11.f_unknown_10 = bin_read(reader)?;
-                Some(AttribModParam::Param11(param11))
+                // Knock
+                let mut knock = AttribModParam_Knock::new();
+                knock.Start = bin_read(reader)?;
+                knock.End = bin_read(reader)?;
+                knock.iPriority = bin_read(reader)?;
+                knock.fVelocity = bin_read(reader)?;
+                knock.fVelocityMagnitude = bin_read(reader)?;
+                knock.fHeight = bin_read(reader)?;
+                knock.fHeightMagnitude = bin_read(reader)?;
+                knock.fPitch = bin_read(reader)?;
+                knock.fYaw = bin_read(reader)?;
+                knock.fRotation = bin_read(reader)?;
+                Some(AttribModParam::Knock(knock))
             }
             _ => {
                 panic!("AttribModParam unknown struct_id: {}", struct_id);
@@ -644,6 +635,26 @@ where
     } else {
         Ok(None)
     }
+}
+
+/// Reads a `PowerVar` struct from a .bin file.
+/// Refer to Common/entity/powers_load.c TokenizerParseInfo structs.
+fn read_power_var<T>(
+    reader: &mut T,
+    strings: &StringPool,
+    messages: &MessageStore,
+) -> ParseResult<PowerVar>
+where
+    T: Read + Seek,
+{
+    let mut power_var = PowerVar::new();
+
+    let (expected_bytes, begin_pos) = read_struct_length(reader)?;
+    power_var.i_index = bin_read(reader)?;
+    power_var.pch_name = read_pool_string(reader, strings, messages)?;
+    power_var.f_min = bin_read(reader)?;
+    power_var.f_max = bin_read(reader)?;
+    verify_struct_length(power_var, expected_bytes, begin_pos, reader)
 }
 
 /// Reads a `PowerFX` struct from a .bin file.

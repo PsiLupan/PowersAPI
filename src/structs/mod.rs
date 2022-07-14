@@ -579,6 +579,10 @@ pub struct Archetype {
 	pub pch_class_image2: Option<String>,
 	pub i_playstyles: u32,
 	pub pch_select_sound: Option<String>,
+	pub i_unk1: u32,
+	pub i_unk2: u32,
+	pub i_unk3: u32,
+	pub i_unk4: u32,
 	// Non-data fields.
 	/// Used for lookup table purposes.
 	pub class_key: Option<NameKey>,
@@ -919,6 +923,20 @@ impl EffectGroup {
 }
 
 #[derive(Debug, Default)]
+pub struct PowerVar {
+	pub pch_name: Option<String>,
+	pub i_index: i32,
+	pub f_min: f32,
+	pub f_max: f32,
+}
+
+impl PowerVar {
+	pub fn new() -> Self {
+		Default::default()
+	}
+}
+
+#[derive(Debug, Default)]
 pub struct PowerFX {
 	/// What .pfx file this was loaded from.
 	pub pch_source_file: Option<String>,
@@ -1157,7 +1175,6 @@ pub struct BasePower {
 	pub f_radius: f32,
 	/// Spherical radians of the cone, centered around a ray connecting the attacker to the target.
 	pub f_arc: f32,
-	pub f_unknown: f32,
 	/// For the chain effect area, add an optional delay between each jump.
 	pub f_chain_delay: f32,
 	/// If set, this expression is evaluated for each chain target beyond the first.
@@ -1241,8 +1258,6 @@ pub struct BasePower {
 	pub pe_modes_disallowed: Vec<SpecialAttrib>,
 	/// List of AI groups this power belongs to. Determines how a particular power is to be used.
 	pub ppch_ai_groups: Vec<String>,
-	/// Unknown string array next to `pp_redirect`.
-	pub ppch_unknown: Vec<String>,
 	/// List of redirections for this power.
 	pub pp_redirect: Vec<PowerRedirect>,
 	/// Effects of this power.
@@ -1298,8 +1313,7 @@ pub struct BasePower {
 	/// List of variables which can be referenced by attrib mods on this power. These variables refer to values stored for each instance
 	/// of the base power (in struct `Power`). The major purpose of these vars is for the Invention system, where they will be used to
 	/// make Boosts.
-	/// i26p5: Changed from its own struct to a simple array of `SpecialAttrib`.
-	pub pp_vars: Vec<SpecialAttrib>,
+	pub pp_vars: Vec<PowerVar>,
 	/// If this power is a toggle power, specifies how/when it responds to a `kDropToggle` `AttribMod`. The default is sometimes.
 	pub e_toggle_droppable: ToggleDroppable,
 	/// Whether this power applies all, none, or some of the non-template boosts that are slotted in it.
@@ -1357,10 +1371,6 @@ pub struct BasePower {
 	pub p_fx: Option<PowerFX>,
 	/// Per-costume selectable overrides for `fx`.
 	pub pp_custom_fx: Vec<CustomPowerFX>,
-	/// Added i26p5. Expression that determines the number of max target hits.
-	pub ppch_max_targets_expr: Vec<String>,
-	/// Added i26p5. Not sure what these are, appears to be either "1" or "3" and related to chain powers.
-	pub pi_unknown: Vec<i32>,
 
 	// Non-data fields.
 	/// Whether or not to include this power in the output files.

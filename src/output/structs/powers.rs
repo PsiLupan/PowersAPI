@@ -57,8 +57,6 @@ pub struct EffectAreaOutput {
     pub area: Option<&'static str>,
     #[serde(skip_serializing_if = "is_zero")]
     pub max_targets_hit: i32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_targets_expression: Option<String>,
     #[serde(skip_serializing_if = "not_normal")]
     pub radius_feet: f32,
     #[serde(skip_serializing_if = "not_normal")]
@@ -79,7 +77,6 @@ impl EffectAreaOutput {
         EffectAreaOutput {
             area: Some(power.e_effect_area.get_string()),
             max_targets_hit: power.i_max_targets_hit,
-            max_targets_expression: requires_to_string(&power.ppch_max_targets_expr),
             radius_feet: if !matches!(power.e_effect_area, EffectArea::kEffectArea_Chain) {
                 normalize(power.f_radius)
             } else {

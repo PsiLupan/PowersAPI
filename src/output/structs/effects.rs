@@ -198,9 +198,7 @@ impl AttribModParamOutput {
                 }
                 Some(AttribModParamOutput::ScriptValue { values })
             }
-            AttribModParam::Param11(_) => {
-                // TODO: not sure what this is yet, something related to chains?
-                // Currently it doesn't seem to be used by any player power
+            AttribModParam::Knock(_) => {
                 None
             }
         }
