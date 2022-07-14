@@ -730,6 +730,7 @@ where
     }
 
     fx_arr!(pi_mode_bits);
+	fx_arr!(pi_preview_bits);
     fx!(i_frames_before_hit, i_frames_before_secondary_hit);
     if fx.i_frames_before_hit == 0 {
         fx.i_frames_before_hit = 15; // see comments on field

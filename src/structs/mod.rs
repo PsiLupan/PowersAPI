@@ -987,6 +987,7 @@ pub struct PowerFX {
 	/// Sets the "mode" (combat, weapon, shotgun..) the player is in. These bits are always set until the power is deselected.
 	/// Set always. A.k.a. `SeqBits`.
 	pub pi_mode_bits: Vec<i32>,
+	pub pi_preview_bits: Vec<i32>,
 	/// This is the time it takes for an attack to hit an enemy for the `AttackBits` animation.
 	/// The default is set to happen on frame 15, so if it's different than that the time is put here.
 	/// 0 means use the default of 15.
