@@ -188,6 +188,10 @@ where
 	at_string!(pch_class_image0, pch_class_image1, pch_class_image2);
 	archetype.i_playstyles = bin_read(reader)?;
 	at_string!(pch_select_sound);
+	archetype.i_unk1 = bin_read(reader)?;
+	archetype.i_unk2 = bin_read(reader)?;
+	archetype.i_unk3 = bin_read(reader)?;
+	archetype.i_unk4 = bin_read(reader)?;
 	
     verify_struct_length(archetype, expected_bytes, begin_pos, reader)
 }
