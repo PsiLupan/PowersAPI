@@ -563,6 +563,22 @@ pub struct Archetype {
 	pub off_defiant_hit_points_attrib: u32,
 	/// Scale applied to damage before it's remove from the `off_defiant_hit_points_attrib`.
 	pub f_defiant_scale: f32,
+	/// Whether or not the class shows a Rage Bar
+	pub i_show_rage_bar: u32,
+	/// The text shown for the Rage Bar
+	pub pch_rage_tip: Option<String>,
+	pub i_starting_restrictions: u32,
+	pub i_playstyle_survivability: u32,
+	pub i_playstyle_melee: u32,
+	pub i_playstyle_ranged: u32,
+	pub i_playstyle_crowdcontrol: u32,
+	pub i_playstyle_support: u32,
+	pub i_playstyle_pets: u32,
+	pub pch_class_image0: Option<String>,
+	pub pch_class_image1: Option<String>,
+	pub pch_class_image2: Option<String>,
+	pub i_playstyles: u32,
+	pub pch_select_sound: Option<String>,
 	// Non-data fields.
 	/// Used for lookup table purposes.
 	pub class_key: Option<NameKey>,

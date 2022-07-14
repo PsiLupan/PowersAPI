@@ -176,7 +176,19 @@ where
     // connect hp and integrity TOK_REDUNDANTNAME
     archetype.off_defiant_hit_points_attrib = bin_read(reader)?;
     archetype.f_defiant_scale = bin_read(reader)?;
-
+	archetype.i_show_rage_bar = bin_read(reader)?;
+	at_string!(pch_rage_tip);
+	archetype.i_starting_restrictions = bin_read(reader)?;
+	archetype.i_playstyle_survivability = bin_read(reader)?;
+	archetype.i_playstyle_melee = bin_read(reader)?;
+	archetype.i_playstyle_ranged = bin_read(reader)?;
+	archetype.i_playstyle_crowdcontrol = bin_read(reader)?;
+	archetype.i_playstyle_support = bin_read(reader)?;
+	archetype.i_playstyle_pets = bin_read(reader)?;
+	at_string!(pch_class_image0, pch_class_image1, pch_class_image2);
+	archetype.i_playstyles = bin_read(reader)?;
+	at_string!(pch_select_sound);
+	
     verify_struct_length(archetype, expected_bytes, begin_pos, reader)
 }
 

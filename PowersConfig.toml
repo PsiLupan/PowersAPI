@@ -1,9 +1,9 @@
 # Example config file
 # Issue that the data were extracted from.
-issue = "i26p5"
+issue = "7.3.2022"
 
 # Identifies the source of the data.
-source = "homecoming"
+source = "thunderspy"
 
 # Optional. Can be "pretty" (nice indented, human-readable JSON) or "compact" (default, saves space).
 output_style = "pretty"
@@ -63,6 +63,8 @@ power_categories = [
     "Warshade_Defensive",
     "Warshade_Offensive",
     "Widow_Training",
+	"Feral_Might",
+	"Primal_Gifts"
 ]
 
 # This is a bit of a hack ... several categories use indirect methods to tie
